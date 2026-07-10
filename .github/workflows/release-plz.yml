@@ -73,7 +73,17 @@ jobs:
           RELEASES: ${{ steps.release.outputs.releases }}
         run: |
           set -euo pipefail
-          echo "$RELEASES" | jq -r '.[].package_name' | while read -r pkg; do
-            echo "Publishing $pkg"
-            cargo publish -p "$pkg"
+          # Idempotent: a re-run (e.g. after a partial failure where one crate
+          # published and another errored) must not fail on the crate already
+          # on crates.io. Check each version before publishing and skip the ones
+          # that are already there. Matches build198x's check-before-publish.
+          echo "$RELEASES" | jq -r '.[] | "\(.package_name) \(.version)"' \
+            | while read -r pkg version; do
+            if curl -sf -A "198x-ci (steve@stevehill.xyz)" \
+                 "https://crates.io/api/v1/crates/$pkg/$version" >/dev/null; then
+              echo "$pkg $version already on crates.io — skipping."
+            else
+              echo "Publishing $pkg $version"
+              cargo publish -p "$pkg"
+            fi
           done
