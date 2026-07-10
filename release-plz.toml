@@ -17,3 +17,8 @@ git_only = true
 git_release_enable = true
 git_tag_enable = true
 changelog_update = true
+# Package-prefixed tags (<crate>-v<version>) even while there's a single crate:
+# it matches the baseline tag, keeps multi-crate future tags unambiguous, and is
+# the exact shape publish.yml parses. Without this, a single-crate workspace
+# defaults to the bare `v<version>`, which misses the baseline and re-releases.
+git_tag_name = "{{ package }}-v{{ version }}"
