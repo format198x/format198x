@@ -9,9 +9,14 @@ concurrency:
   group: release-plz-${{ github.ref }}
   cancel-in-progress: false
 
+# No PAT: the default GITHUB_TOKEN drives everything. Opening the release PR
+# needs the org/repo setting "Allow GitHub Actions to create and approve pull
+# requests" enabled (Settings -> Actions -> General). id-token is for the OIDC
+# publish below — no stored crates.io token.
 permissions:
   pull-requests: write
   contents: write
+  id-token: write
 
 jobs:
   release-plz:
@@ -21,12 +26,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
-          # release-plz needs full history to diff changelogs from the last tag.
           fetch-depth: 0
-          # A tag pushed by GITHUB_TOKEN does NOT trigger other workflows, so the
-          # per-org RELEASE_PLZ_TOKEN (a fine-grained PAT) is required for the
-          # per-crate tag to fire publish.yml.
-          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Read pinned toolchain
         id: toolchain
@@ -39,20 +39,41 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
-      # release-plz opens/updates a "chore: release" PR per crate that has new
-      # commits, then (once merged) tags each released crate. It does NOT
-      # publish — release-plz.toml sets publish = false; crates.io publishing is
-      # done by publish.yml over OIDC when the tag lands.
+      # Open/update the per-crate "chore: release" PR for new commits.
       - name: Run release-plz (open/update release PR)
         uses: release-plz/action@v0.5
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Once a release PR is merged, tag the released crate(s). publish = false
+      # in release-plz.toml, so this only bumps/changelogs/tags — the publish
+      # step below does crates.io over OIDC.
       - name: Run release-plz (tag merged releases)
+        id: release
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish whatever was just released to crates.io over Trusted Publishing.
+      # Gated on releases_created, so the OIDC exchange happens only on an actual
+      # release — never on an ordinary push, and never needing a stored token.
+      - name: Authenticate to crates.io (Trusted Publishing)
+        if: steps.release.outputs.releases_created == 'true'
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish released crates
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          RELEASES: ${{ steps.release.outputs.releases }}
+        run: |
+          set -euo pipefail
+          echo "$RELEASES" | jq -r '(.releases // .)[].package_name' | while read -r pkg; do
+            echo "Publishing $pkg"
+            cargo publish -p "$pkg"
+          done
