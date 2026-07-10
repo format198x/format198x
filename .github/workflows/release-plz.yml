@@ -73,7 +73,7 @@ jobs:
           RELEASES: ${{ steps.release.outputs.releases }}
         run: |
           set -euo pipefail
-          echo "$RELEASES" | jq -r '(.releases // .)[].package_name' | while read -r pkg; do
+          echo "$RELEASES" | jq -r '.[].package_name' | while read -r pkg; do
             echo "Publishing $pkg"
             cargo publish -p "$pkg"
           done
