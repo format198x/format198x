@@ -1,0 +1,19 @@
+# release-plz configuration.
+#
+# On each push to main, release-plz opens (or updates) a per-crate "chore:
+# release" PR (version bump + CHANGELOG from conventional-commit prefixes).
+# Merging it tags the crate as <crate>-v<version>, which fires
+# .github/workflows/publish.yml to publish that crate to crates.io over OIDC.
+#
+# Per-package versioning: there is no shared workspace version, so each crate
+# bumps independently from its own commits — no lockstep. git_only takes each
+# crate's baseline from its <crate>-v<version> git tag, which is deterministic
+# and needs no registry token here (publish.yml owns publishing).
+[workspace]
+# publish = false: release-plz does not run cargo publish; publish.yml does,
+# over OIDC. release-plz only bumps, changelogs, tags, and cuts GitHub releases.
+publish = false
+git_only = true
+git_release_enable = true
+git_tag_enable = true
+changelog_update = true

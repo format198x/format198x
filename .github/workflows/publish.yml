@@ -1,0 +1,65 @@
+name: Publish
+
+# Publish a format crate to crates.io when release-plz tags its release.
+#
+# Auth is crates.io Trusted Publishing (OIDC) — no stored token. Each crate
+# needs a trusted publisher configured once at crates.io (crate Settings ->
+# Trusted Publishing): repository format198x/format198x, workflow "publish.yml",
+# no environment.
+#
+# release-plz tags each crate independently as "<crate>-v<version>", so the tag
+# names exactly which crate to publish. release-plz itself does not publish
+# (publish = false); this workflow does, over OIDC, only for the tagged crate.
+
+on:
+  push:
+    tags:
+      - "*-v[0-9]+.[0-9]+.[0-9]+*"
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required to mint the short-lived crates.io token via OIDC
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Authenticate to crates.io (Trusted Publishing)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish the tagged crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          crate="${tag%-v*}"      # strip the -v<version> suffix
+          version="${tag##*-v}"   # keep only the version
+          echo "Tag $tag -> crate $crate, version $version"
+          # Idempotent: skip if this version is already on crates.io (re-runs).
+          if curl -sf -A "198x-ci (steve@stevehill.xyz)" \
+               "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
+            echo "$crate $version already on crates.io — skipping."
+          else
+            cargo publish -p "$crate"
+          fi
