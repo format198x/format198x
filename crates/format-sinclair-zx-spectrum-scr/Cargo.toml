@@ -5,7 +5,7 @@
 [package]
 name = "format-sinclair-zx-spectrum-scr"
 description = "ZX Spectrum SCR screen dumps — decode and encode the 6912-byte display file, including the ULA's interleaved bitmap order."
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
