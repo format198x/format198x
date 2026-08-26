@@ -37,12 +37,15 @@ if is_powerpacked(&bytes) {
   header field and bitstream read is range-checked against the input it
   actually has, and a violation returns [`DecodeError`] rather than
   indexing past a slice.
-- **Algorithm provenance.** Ported from the public-domain PowerPacker
-  decruncher by Stuart Caie, as carried into Heikki Orsila's `amigadepack`
-  and from there into libxmp's `ppDecrunch` — the implementation most
-  tracker players have shipped for two decades. See the module
-  documentation (`src/lib.rs`) for the exact lineage and what changed in
-  the port.
+- **Algorithm provenance.** Ported from libxmp's `ppDecrunch`
+  (`src/depackers/ppdepack.c`), the implementation most tracker players have
+  shipped for two decades. Its header records the lineage: based on code by
+  **Stuart Caie**, placed in the public domain; carried via **Heikki
+  Orsila**'s `amigadepack` 0.02; modified for xmp by **Claudio Matsuoka** in
+  08/2007, merging the corrupt-file and data-detection checks from the older
+  depack sources, and again in 05/2013. Matsuoka's 2007 merge is the
+  corruption detection this port carries over. See the module documentation
+  (`src/lib.rs`) for the full header and what changed in the port.
 
 [`DecodeError`]: https://docs.rs/format-commodore-amiga-powerpacker/latest/format_commodore_amiga_powerpacker/enum.DecodeError.html
 

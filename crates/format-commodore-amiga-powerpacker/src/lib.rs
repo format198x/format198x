@@ -29,16 +29,26 @@
 //!
 //! # Algorithm provenance
 //!
-//! The bit-level algorithm below is ported from the public-domain PowerPacker
-//! decruncher by Stuart Caie, as carried into Heikki Orsila's `amigadepack`
-//! and from there into libxmp's `depackers/ppdepack.c` (`ppDecrunch`) — the
-//! implementation most tracker players have shipped for two decades. This
-//! port keeps its control flow (the literal/match continuation codes, the
-//! 4-way offset-length selector, the `x == 3` long-match escape) exactly, but
-//! replaces every raw pointer read with a bounds-checked one: a malformed
-//! offset-length byte, an initial bit-skip over 32, or a back-reference that
-//! would land past the end of the output all return [`DecodeError::Corrupt`]
-//! or [`DecodeError::Truncated`] rather than reading out of bounds.
+//! The bit-level algorithm below is ported from libxmp's
+//! `depackers/ppdepack.c` (`ppDecrunch`) — the implementation most tracker
+//! players have shipped for two decades. Its own header records the lineage:
+//! the decruncher is based on code by **Stuart Caie**, placed in the public
+//! domain; the version libxmp carries came from **Heikki Orsila**'s
+//! `amigadepack` 0.02; and **Claudio Matsuoka** modified it for xmp in
+//! 08/2007, merging in the corrupt-file and data-detection checks from the
+//! older depack sources (credited there to Don Adan, Dirk Stoecker and Georg
+//! Hoermann) and again in 05/2013 to remove the decryption code.
+//!
+//! Matsuoka's 2007 merge is precisely the corruption detection this port
+//! carries over, so that credit is load-bearing rather than ceremonial.
+//!
+//! This port keeps the control flow (the literal/match continuation codes,
+//! the 4-way offset-length selector, the `x == 3` long-match escape)
+//! exactly, but replaces every raw pointer read with a bounds-checked one: a
+//! malformed offset-length byte, an initial bit-skip over 32, a run or match
+//! length longer than the declared output, or a back-reference that would
+//! land past the end of the output all return [`DecodeError::Corrupt`] or
+//! [`DecodeError::Truncated`] rather than reading out of bounds.
 //!
 //! # Example
 //!
