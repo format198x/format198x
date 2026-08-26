@@ -124,15 +124,76 @@ fn a_match_longer_than_the_declared_output_is_corrupt() {
 
 /// A wide sweep of small, structurally-plausible-but-arbitrary byte strings
 /// must never panic, whatever `decrunch` decides to return.
+///
+/// The sweep varies the header fields *independently* of the body, because
+/// an earlier version of this test did not: it filled the whole buffer with
+/// one byte, so every fill also landed in the offset-length table at
+/// `bytes[4..8]`. All 208 inputs failed that table's range check in the
+/// first few lines of `decrunch` and returned the identical error; not one
+/// reached the bitstream reader, the back-reference bound, or the
+/// decompression loop. It read as coverage and was worth nothing.
+///
+/// The tallies are what keep it honest. If a later change makes the sweep
+/// bounce off an early check again, the "reached the decompression loop"
+/// assertion fails rather than the test quietly going vacuous.
 #[test]
 fn malformed_input_never_panics() {
-    for len in 12..64usize {
-        for fill in [0x00u8, 0xFF, 0x55, 0xAA] {
-            let mut bytes = vec![fill; len];
-            bytes[..4].copy_from_slice(b"PP20");
-            let _ = decrunch(&bytes);
+    // Four offset-length tables: three legal (the range check allows 1..=15;
+    // genuine files use 9..=13) and one with a zero entry, so the table
+    // check is still exercised without being the only thing exercised.
+    const TABLES: [[u8; 4]; 4] = [[9, 10, 12, 13], [9, 9, 9, 9], [8, 10, 11, 15], [0, 9, 9, 9]];
+
+    let mut decrunched = 0usize;
+    let mut truncated = 0usize;
+    let mut corrupt = 0usize;
+    let mut bad_magic = 0usize;
+
+    for magic in [b"PP20", b"PP11"] {
+        for table in TABLES {
+            for fill in [0x00u8, 0x0F, 0x55, 0xAA, 0xFF] {
+                for len in 12..64usize {
+                    for dest_len in [0u32, 1, 2, 5, 64, 1024] {
+                        for skip in [0u8, 3, 7, 33] {
+                            let mut bytes = vec![fill; len];
+                            bytes[..4].copy_from_slice(magic);
+                            bytes[4..8].copy_from_slice(&table);
+                            let trailer = len - 4;
+                            bytes[trailer] = ((dest_len >> 16) & 0xFF) as u8;
+                            bytes[trailer + 1] = ((dest_len >> 8) & 0xFF) as u8;
+                            bytes[trailer + 2] = (dest_len & 0xFF) as u8;
+                            bytes[trailer + 3] = skip;
+
+                            match decrunch(&bytes) {
+                                Ok(out) => {
+                                    assert_eq!(
+                                        out.len(),
+                                        dest_len as usize,
+                                        "a successful decrunch must produce exactly the declared length"
+                                    );
+                                    if !out.is_empty() {
+                                        decrunched += 1;
+                                    }
+                                }
+                                Err(DecodeError::Truncated { .. }) => truncated += 1,
+                                Err(DecodeError::Corrupt { .. }) => corrupt += 1,
+                                Err(DecodeError::BadMagic) => bad_magic += 1,
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+
+    // A zero declared length succeeds without entering the loop at all, so
+    // only non-empty output proves the sweep got that far.
+    assert!(
+        decrunched > 0,
+        "the sweep never reached the decompression loop: no input produced non-empty output"
+    );
+    assert!(truncated > 0, "no input exhausted the bitstream");
+    assert!(corrupt > 0, "no input tripped a range or bounds check");
+    assert!(bad_magic > 0, "no input was rejected on its magic");
 }
 
 /// Decrunches a genuine PP20-crunched ProTracker module extracted from the
