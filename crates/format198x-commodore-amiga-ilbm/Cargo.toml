@@ -1,0 +1,15 @@
+# EA-IFF-85 ILBM — the Amiga's interleaved bitplane image format, both
+# uncompressed and ByteRun1. Graduated from build198x.
+[package]
+name = "format198x-commodore-amiga-ilbm"
+description = "Amiga IFF/ILBM images — decode and encode interleaved bitplanes, uncompressed or ByteRun1, with CAMG screen-mode flags."
+version = "0.1.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["amiga", "ilbm", "iff", "bitplane", "retro"]
+categories = ["encoding", "multimedia::images"]
+
+[lints]
+workspace = true

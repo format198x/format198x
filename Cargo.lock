@@ -3,36 +3,36 @@
 version = 4
 
 [[package]]
-name = "format-commodore-amiga-adf"
+name = "format198x-commodore-amiga-adf"
 version = "0.2.2"
 
 [[package]]
-name = "format-commodore-amiga-ilbm"
+name = "format198x-commodore-amiga-ilbm"
 version = "0.1.1"
 
 [[package]]
-name = "format-commodore-amiga-mod"
+name = "format198x-commodore-amiga-mod"
 version = "0.1.1"
 
 [[package]]
-name = "format-commodore-amiga-powerpacker"
+name = "format198x-commodore-amiga-powerpacker"
 version = "0.1.1"
 dependencies = [
- "format-commodore-amiga-adf",
+ "format198x-commodore-amiga-adf",
 ]
 
 [[package]]
-name = "format-commodore-c64-art-studio"
+name = "format198x-commodore-c64-art-studio"
 version = "0.1.1"
 
 [[package]]
-name = "format-commodore-c64-koala"
+name = "format198x-commodore-c64-koala"
 version = "0.1.1"
 
 [[package]]
-name = "format-sinclair-zx-spectrum-scr"
+name = "format198x-sinclair-zx-spectrum-scr"
 version = "0.1.1"
 
 [[package]]
-name = "format-sinclair-zx-spectrum-tap"
+name = "format198x-sinclair-zx-spectrum-tap"
 version = "0.1.0"

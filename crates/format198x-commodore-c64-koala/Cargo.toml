@@ -1,0 +1,15 @@
+# Koala Painter multicolour bitmaps — 160x200 at 4 colours per 4x8 cell,
+# with the $6000 load address the format carries. Graduated from build198x.
+[package]
+name = "format198x-commodore-c64-koala"
+description = "Commodore 64 Koala Painter multicolour bitmaps — decode and encode the 10003-byte format including its load address."
+version = "0.1.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["commodore", "c64", "koala", "bitmap", "retro"]
+categories = ["encoding", "multimedia::images"]
+
+[lints]
+workspace = true
