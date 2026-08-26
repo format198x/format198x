@@ -6,7 +6,7 @@
 //! no-media-in-the-repo rule) — see [`decrunches_a_genuine_pp20_module`]
 //! below for how to run it.
 
-use format_commodore_amiga_powerpacker::{DecodeError, decrunch, is_powerpacked};
+use format_commodore_amiga_powerpacker::{DecodeError, MAGIC, decrunch, is_powerpacked};
 
 #[test]
 fn recognises_the_pp20_magic() {
@@ -48,6 +48,78 @@ fn rejects_oversized_initial_skip() {
     bytes[4..8].copy_from_slice(&[9, 9, 9, 9]);
     *bytes.last_mut().expect("non-empty") = 33; // skip_bits > 32
     assert!(matches!(decrunch(&bytes), Err(DecodeError::Corrupt { .. })));
+}
+
+/// Build a PP20 stream whose body encodes `reads` — a list of
+/// `(value, bit_width)` pairs in the order [`decrunch`] will pull them, with
+/// no initial bit-skip.
+///
+/// The bitstream is read backwards from the end of the body, LSB-first
+/// within each byte, so read-order bit *k* lives in bit `k % 8` of body byte
+/// `len - 1 - k / 8`. Encoding that here rather than hand-writing hex is what
+/// makes a crafted stream readable at the call site.
+fn crafted_stream(offset_lens: [u8; 4], dest_len: u32, reads: &[(u32, u32)]) -> Vec<u8> {
+    let mut bits: Vec<u8> = Vec::new();
+    for &(value, width) in reads {
+        for i in (0..width).rev() {
+            bits.push(((value >> i) & 1) as u8);
+        }
+    }
+    let body_len = bits.len().div_ceil(8).max(1);
+    let mut body = vec![0u8; body_len];
+    for (k, bit) in bits.iter().enumerate() {
+        if *bit == 1 {
+            body[body_len - 1 - k / 8] |= 1u8 << (k % 8);
+        }
+    }
+
+    let mut out = MAGIC.to_vec();
+    out.extend_from_slice(&offset_lens);
+    out.extend_from_slice(&body);
+    out.extend_from_slice(&[
+        ((dest_len >> 16) & 0xFF) as u8,
+        ((dest_len >> 8) & 0xFF) as u8,
+        (dest_len & 0xFF) as u8,
+        0, // initial bit-skip
+    ]);
+    out
+}
+
+/// The literal-run continuation code chains without limit — every `11` chunk
+/// asks for three more bytes and another chunk — so a hostile body can drive
+/// the accumulator past `u32::MAX` and panic on overflow. `dest_len` bounds
+/// it: a literal run longer than the declared output can never succeed.
+#[test]
+fn a_literal_run_longer_than_the_declared_output_is_corrupt() {
+    // Literal marker, then 2-bit run chunks of 3: run = 1 + 3 + 3 = 7
+    // against a declared output of 4.
+    let bytes = crafted_stream([9, 10, 12, 13], 4, &[(0, 1), (3, 2), (3, 2), (3, 2)]);
+    assert_eq!(
+        decrunch(&bytes),
+        Err(DecodeError::Corrupt {
+            what: "literal run length exceeds the declared output length"
+        })
+    );
+}
+
+/// The same unbounded chaining in the `x == 3` long-match escape, where each
+/// `111` chunk adds seven to the match length and asks for another chunk.
+#[test]
+fn a_match_longer_than_the_declared_output_is_corrupt() {
+    // Match marker, selector 3 (the long-match escape), the bit that keeps
+    // the table's own offset width, a 13-bit offset, then 3-bit length
+    // chunks of 7: length = 5 + 7 + 7 = 19 against a declared output of 16.
+    let bytes = crafted_stream(
+        [9, 10, 12, 13],
+        16,
+        &[(1, 1), (3, 2), (1, 1), (0, 13), (7, 3), (7, 3), (7, 3)],
+    );
+    assert_eq!(
+        decrunch(&bytes),
+        Err(DecodeError::Corrupt {
+            what: "match length exceeds the declared output length"
+        })
+    );
 }
 
 /// A wide sweep of small, structurally-plausible-but-arbitrary byte strings

@@ -138,7 +138,18 @@ pub fn decrunch(bytes: &[u8]) -> Result<Vec<u8>, DecodeError> {
             let mut run = 1u32;
             loop {
                 let chunk = reader.read_bits(2)?;
-                run += chunk;
+                // A literal run can never be longer than the output it has
+                // to fit into, so `dest_len` bounds this accumulator. The
+                // continuation code chains without limit, so without the
+                // cap a hostile body grows `run` by 3 per 2 bits until it
+                // overflows: a panic in debug and test builds, a silent
+                // wrap in release.
+                run = run.saturating_add(chunk);
+                if run as usize > dest_len {
+                    return Err(DecodeError::Corrupt {
+                        what: "literal run length exceeds the declared output length",
+                    });
+                }
                 if chunk != 3 {
                     break;
                 }
@@ -162,7 +173,15 @@ pub fn decrunch(bytes: &[u8]) -> Result<Vec<u8>, DecodeError> {
             let offset = reader.read_bits(offset_bits)?;
             loop {
                 let chunk = reader.read_bits(3)?;
-                length += chunk;
+                // Bounded by `dest_len` for the same reason `run` is: a
+                // match longer than the declared output can never succeed,
+                // and the `x == 7` continuation chains without limit.
+                length = length.saturating_add(chunk);
+                if length as usize > dest_len {
+                    return Err(DecodeError::Corrupt {
+                        what: "match length exceeds the declared output length",
+                    });
+                }
                 if chunk != 7 {
                     break;
                 }
