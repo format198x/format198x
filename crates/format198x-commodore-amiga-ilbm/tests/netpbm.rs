@@ -67,7 +67,7 @@ fn parse_ppm(bytes: &[u8]) -> (usize, usize, Vec<[u8; 3]>) {
     assert_eq!(maxval, 255, "test PPMs use maxval 255");
     pos += 1; // single whitespace byte after maxval
     let data = &bytes[pos..pos + width * height * 3];
-    let pixels = data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+    let pixels = data.as_chunks::<3>().0.to_vec();
     (width, height, pixels)
 }
 
