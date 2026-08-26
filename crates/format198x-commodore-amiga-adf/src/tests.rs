@@ -434,3 +434,68 @@ fn disk_verify_catches_a_flipped_byte() {
     let disk = Disk::open(&corrupt).unwrap();
     assert!(matches!(disk.verify(), Err(Error::Corrupt { .. })));
 }
+
+/// `unwrap_err` would need `Debug` on `Disk`, and a derived one would print the
+/// whole disk image.
+fn err_of(result: Result<Disk<'_>, Error>) -> Error {
+    match result {
+        Err(err) => err,
+        Ok(_) => panic!("expected a rejection, got a disk"),
+    }
+}
+
+/// The reported case (emu198x/emu198x#1192): an IPF was rejected as a
+/// wrong-sized ADF, which sent the reader to check a disk image that was never
+/// at fault. Magic verified against a real SPS dump.
+#[test]
+fn an_ipf_is_named_rather_than_measured() {
+    let mut ipf = b"CAPS".to_vec();
+    ipf.extend_from_slice(&[0, 0, 0, 0x0C, 0x1C, 0xD5, 0x73, 0xBA]);
+    let err = err_of(Disk::open(&ipf));
+    assert!(
+        matches!(err, Error::UnsupportedContainer { format: "IPF", .. }),
+        "{err:?}"
+    );
+    let message = err.to_string();
+    assert!(message.contains("IPF"), "{message}");
+    assert!(
+        !message.contains("image size"),
+        "the size is not what is wrong: {message}"
+    );
+}
+
+#[test]
+fn other_containers_are_named_too() {
+    for (bytes, expected) in [
+        (b"UAE-1ADF".to_vec(), "extended ADF"),
+        (b"DMS!".to_vec(), "DMS"),
+        (b"PK\x03\x04".to_vec(), "zip"),
+        (vec![0x1f, 0x8b, 0x08, 0x00], "gzip"),
+    ] {
+        let err = err_of(Disk::open(&bytes));
+        assert!(
+            matches!(err, Error::UnsupportedContainer { format, .. } if format == expected),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains(expected), "{err}");
+    }
+}
+
+/// A truncated or padded ADF is still an ADF, and the size complaint is the
+/// right answer for it. A file shorter than any magic must not panic either.
+#[test]
+fn an_unrecognised_file_still_gets_the_size_complaint() {
+    for bytes in [vec![0u8; 1024], vec![0x1f], Vec::new()] {
+        let err = err_of(Disk::open(&bytes));
+        assert!(
+            matches!(
+                err,
+                Error::Corrupt {
+                    what: "image size (not an 880K DD floppy)"
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("image size"), "{err}");
+    }
+}
