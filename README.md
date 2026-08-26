@@ -19,8 +19,9 @@ not just the 198x projects.
 | [`format198x-commodore-c64-koala`](crates/format198x-commodore-c64-koala) | C64 Koala Painter multicolour bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-koala.svg)](https://crates.io/crates/format198x-commodore-c64-koala) |
 | [`format198x-commodore-c64-art-studio`](crates/format198x-commodore-c64-art-studio) | C64 OCP Art Studio hires bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-art-studio.svg)](https://crates.io/crates/format198x-commodore-c64-art-studio) |
 | [`format198x-sinclair-zx-spectrum-scr`](crates/format198x-sinclair-zx-spectrum-scr) | ZX Spectrum SCR screen dumps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-scr.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-scr) |
+| [`format198x-sinclair-zx-spectrum-tap`](crates/format198x-sinclair-zx-spectrum-tap) | ZX Spectrum TAP tape images — read, write, block parity | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-tap.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-tap) |
 
-More formats (C64 D64, Spectrum TAP, and others) graduate here from their
+More formats (C64 D64, Amstrad DSK, and others) graduate here from their
 originating projects as they earn a standalone consumer.
 
 ## Conventions
