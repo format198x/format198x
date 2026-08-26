@@ -28,8 +28,9 @@
 //!
 //! Only 4-channel modules (`M.K.`, `M!K!`, `FLT4`, `4CHN`) decode:
 //! [`Note`]'s pattern rows are fixed at 4 channels, so a 6- or 8-channel
-//! module (`6CHN`, `8CHN`) is recognised by [`is_module`] — the sniff is not
-//! a promise of decodability — but rejected by [`decode`] with
+//! module (`6CHN`, `8CHN`, and Startrekker's `FLT8`) is recognised by
+//! [`is_module`] — the sniff is not a promise of decodability — but
+//! rejected by [`decode`] with
 //! [`DecodeError::UnsupportedChannelCount`] rather than silently
 //! misinterpreting its wider pattern rows as 4-channel ones.
 //!
@@ -125,10 +126,13 @@ pub const SAMPLE_NAME_LEN: usize = 22;
 /// actually plays.
 pub const ORDER_TABLE_LEN: usize = 128;
 
-/// The recognised ProTracker/Noisetracker/Startrekker magics. `6CHN` and
-/// `8CHN` are recognised here (for [`is_module`]) but rejected by
-/// [`decode`] — see the crate documentation's Scope section.
-pub(crate) const MAGICS: [&[u8; 4]; 6] = [b"M.K.", b"M!K!", b"FLT4", b"4CHN", b"6CHN", b"8CHN"];
+/// The recognised ProTracker/Noisetracker/Startrekker magics. `6CHN`,
+/// `8CHN` and `FLT8` are recognised here (for [`is_module`]) but rejected
+/// by [`decode`] — see the crate documentation's Scope section. `FLT8` is
+/// Startrekker's 8-channel magic, the counterpart to its 4-channel `FLT4`.
+pub(crate) const MAGICS: [&[u8; 4]; 7] = [
+    b"M.K.", b"M!K!", b"FLT4", b"4CHN", b"6CHN", b"8CHN", b"FLT8",
+];
 
 /// Whether `bytes` looks like a ProTracker MOD module: long enough to hold
 /// the fixed header, with a recognised magic at [`MAGIC_OFFSET`].
@@ -299,7 +303,7 @@ pub struct Module {
     /// preserved here so encoding reproduces it exactly.
     pub restart: u8,
     /// The 4-byte format magic, exactly as stored (`M.K.`, `M!K!`, `FLT4`,
-    /// or `4CHN` — [`decode`] rejects `6CHN`/`8CHN`, see the crate
+    /// or `4CHN` — [`decode`] rejects `6CHN`/`8CHN`/`FLT8`, see the crate
     /// documentation's Scope section).
     pub magic: [u8; 4],
     /// The stored patterns, each 64 rows of 4 [`Note`]s.

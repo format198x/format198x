@@ -43,8 +43,9 @@ accepts.
 ## Scope: 4-channel modules only
 
 `Note`'s pattern rows are fixed at 4 channels, matching the classic `M.K.`,
-`M!K!`, `FLT4`, and `4CHN` formats. A 6- or 8-channel module (`6CHN`, `8CHN`)
-is recognised by `is_module` but rejected by `decode` with
+`M!K!`, `FLT4`, and `4CHN` formats. A 6- or 8-channel module (`6CHN`,
+`8CHN`, or Startrekker's `FLT8`) is recognised by `is_module` but rejected
+by `decode` with
 `DecodeError::UnsupportedChannelCount` — this crate cannot represent a wider
 pattern row without corrupting it, so it says so rather than misparsing.
 

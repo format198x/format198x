@@ -23,9 +23,10 @@ pub enum DecodeError {
         what: &'static str,
     },
     /// The 4 bytes at offset 1080 do not match any recognised ProTracker
-    /// magic (`M.K.`, `M!K!`, `FLT4`, `4CHN`, `6CHN`, `8CHN`).
+    /// magic (`M.K.`, `M!K!`, `FLT4`, `4CHN`, `6CHN`, `8CHN`, `FLT8`).
     BadMagic,
-    /// The magic identifies a 6- or 8-channel module (`6CHN`/`8CHN`).
+    /// The magic identifies a 6- or 8-channel module (`6CHN`, `8CHN`, or
+    /// Startrekker's `FLT8`).
     /// [`is_module`](crate::is_module) recognises these as ProTracker
     /// modules — the sniff is not a promise of decodability — but
     /// [`Module`](crate::Module)'s pattern rows are fixed at 4 channels, so

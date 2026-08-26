@@ -1,7 +1,7 @@
 //! Parse and round-trip tests against a module built in code rather than
 //! shipped as a file — no media may enter the repository.
 
-use format_commodore_amiga_mod::{DecodeError, decode, encode};
+use format_commodore_amiga_mod::{DecodeError, decode, encode, is_module};
 
 /// One looped square-wave sample, one pattern, a C-2 on channel 0 at row 0.
 fn synthetic_module() -> Vec<u8> {
@@ -165,6 +165,21 @@ fn eight_channel_magic_is_unsupported() {
     assert_eq!(
         decode(&bytes),
         Err(DecodeError::UnsupportedChannelCount { magic: *b"8CHN" })
+    );
+}
+
+/// Startrekker's 8-channel magic, the counterpart to its `FLT4`. It must
+/// reach the channel-count rejection like `8CHN` does, not fall through to
+/// `BadMagic` — a content-sniffing player has to be able to identify the
+/// file before it can say it cannot play it.
+#[test]
+fn startrekker_flt8_is_unsupported_rather_than_unrecognised() {
+    let mut bytes = synthetic_module();
+    bytes[1080..1084].copy_from_slice(b"FLT8");
+    assert!(is_module(&bytes), "FLT8 must be identified as a module");
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::UnsupportedChannelCount { magic: *b"FLT8" })
     );
 }
 

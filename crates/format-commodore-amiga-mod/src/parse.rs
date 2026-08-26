@@ -46,7 +46,7 @@ struct SampleHeader {
 /// header, or shorter than the pattern or sample data the header declares.
 /// [`DecodeError::BadMagic`] when no recognised magic sits at
 /// [`MAGIC_OFFSET`]. [`DecodeError::UnsupportedChannelCount`] for a 6- or
-/// 8-channel module (`6CHN`/`8CHN`) — see the crate documentation's Scope
+/// 8-channel module (`6CHN`/`8CHN`/`FLT8`) — see the crate documentation's Scope
 /// section. [`DecodeError::Corrupt`] when a header field is out of range for
 /// the format (a song length longer than the order table can hold) or an
 /// offset computation would overflow — never a panic, even on hostile input.
@@ -62,7 +62,7 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
     if !MAGICS.iter().any(|m| **m == magic) {
         return Err(DecodeError::BadMagic);
     }
-    if &magic == b"6CHN" || &magic == b"8CHN" {
+    if &magic == b"6CHN" || &magic == b"8CHN" || &magic == b"FLT8" {
         return Err(DecodeError::UnsupportedChannelCount { magic });
     }
 
