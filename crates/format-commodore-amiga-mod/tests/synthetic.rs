@@ -1,7 +1,7 @@
 //! Parse and round-trip tests against a module built in code rather than
 //! shipped as a file — no media may enter the repository.
 
-use format_commodore_amiga_mod::{decode, encode};
+use format_commodore_amiga_mod::{DecodeError, decode, encode};
 
 /// One looped square-wave sample, one pattern, a C-2 on channel 0 at row 0.
 fn synthetic_module() -> Vec<u8> {
@@ -66,4 +66,104 @@ fn malformed_input_never_panics() {
             "length {len} must be rejected"
         );
     }
+}
+
+// The tests above only ever feed all-zero buffers, which fail the BadMagic
+// check at offset 1080 and return before touching the song length, the
+// order table, the sample-length sums, or the pattern-count arithmetic —
+// the code that has actually changed across this crate's revisions, and
+// the highest-risk code in it. Everything below starts from a genuinely
+// valid module (so it gets past BadMagic) and corrupts exactly one field,
+// asserting the specific `DecodeError` variant that field's check must
+// produce — not just `is_err()`, which would pass even if the wrong check
+// fired.
+
+/// Offset of sample `i`'s 30-byte header within [`synthetic_module`]'s
+/// bytes (title is 20 bytes, so headers start at 20).
+fn sample_header_offset(i: usize) -> usize {
+    20 + i * 30
+}
+
+#[test]
+fn song_length_over_128_is_corrupt() {
+    let mut bytes = synthetic_module();
+    bytes[950] = 200; // song length byte; legal range is 0..=128
+    assert!(
+        matches!(decode(&bytes), Err(DecodeError::Corrupt { .. })),
+        "a song length past the 128-entry order table must be Corrupt"
+    );
+}
+
+#[test]
+fn sample_length_overrunning_the_file_is_truncated() {
+    let mut bytes = synthetic_module();
+    // Inflate sample 0's declared length far past what the file actually
+    // holds (the file still only has the original 64 bytes of PCM data).
+    let start = sample_header_offset(0);
+    bytes[start + 22..start + 24].copy_from_slice(&0xFFFFu16.to_be_bytes());
+    assert!(
+        matches!(decode(&bytes), Err(DecodeError::Truncated { .. })),
+        "a declared sample length past the end of the file must be Truncated, not underflow"
+    );
+}
+
+#[test]
+fn non_1024_aligned_remainder_is_corrupt() {
+    let mut bytes = synthetic_module();
+    bytes.push(0); // one stray byte breaks pattern-data's 1024-byte alignment
+    assert!(
+        matches!(decode(&bytes), Err(DecodeError::Corrupt { .. })),
+        "a remainder that isn't a whole number of 1024-byte patterns must be Corrupt, not rounded"
+    );
+}
+
+#[test]
+fn file_truncated_mid_pattern_is_truncated() {
+    let bytes = synthetic_module();
+    // Cut inside the single 1024-byte pattern (which starts at 1084), deep
+    // enough that even sample 0's declared 64 bytes of PCM no longer fit.
+    // Magic and every header are untouched.
+    let truncated = &bytes[..1100];
+    assert!(
+        matches!(decode(truncated), Err(DecodeError::Truncated { .. })),
+        "a file that ends mid-pattern must be Truncated"
+    );
+}
+
+#[test]
+fn absurd_sample_lengths_fail_fast_without_overflow_or_huge_allocation() {
+    let mut bytes = synthetic_module();
+    // Every one of the 31 sample slots claims the maximum possible length
+    // (0xFFFF words = 131070 bytes each, ~4MB total) while the file itself
+    // stays tiny. This must return a typed error immediately rather than
+    // overflow the running sum, wrap around in the bounds arithmetic, or
+    // attempt to allocate anywhere near 4MB for data the file doesn't have.
+    for i in 0..31 {
+        let start = sample_header_offset(i);
+        bytes[start + 22..start + 24].copy_from_slice(&0xFFFFu16.to_be_bytes());
+    }
+    assert!(
+        matches!(decode(&bytes), Err(DecodeError::Truncated { .. })),
+        "absurd declared sample lengths must be rejected, not overflow or allocate"
+    );
+}
+
+#[test]
+fn six_channel_magic_is_unsupported() {
+    let mut bytes = synthetic_module();
+    bytes[1080..1084].copy_from_slice(b"6CHN");
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::UnsupportedChannelCount { magic: *b"6CHN" })
+    );
+}
+
+#[test]
+fn eight_channel_magic_is_unsupported() {
+    let mut bytes = synthetic_module();
+    bytes[1080..1084].copy_from_slice(b"8CHN");
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::UnsupportedChannelCount { magic: *b"8CHN" })
+    );
 }
