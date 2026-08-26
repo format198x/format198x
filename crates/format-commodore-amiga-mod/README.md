@@ -70,12 +70,24 @@ back exactly `patterns.len()` patterns, so this data round-trips like
 everything else.
 
 That arithmetic assumes nothing follows the last sample, which some files
-break — modules ripped out of an executable, padded to a block boundary, or
-stored inside a larger container all carry surplus bytes at the end, and
-reading those as extra patterns silently shifts every sample's PCM into the
-junk. The order table caps the count as a cross-check (no file stores a
-pattern no order-table entry can name), and any surplus beyond that cap is
-kept verbatim in `Module::trailing`, so the module still re-encodes
+break — a module ripped out of an executable or stored inside a larger
+container can carry surplus bytes at the end, and reading those as extra
+patterns silently shifts every sample's PCM into the junk. Such a surplus
+survives decoding only when it is a whole number of 1024-byte units; any
+other amount, a 512-byte block pad included, fails the divisibility check
+and comes back as `DecodeError::Corrupt`.
+
+Size cannot settle what the surplus is. "N patterns plus a 1024-byte tail"
+and "N+1 patterns and no tail" are the same length, and committing to
+either blindly corrupts the other case's sample data. So when a file's
+length implies more patterns than the order table names, `decode` looks at
+the disputed block, because pattern data has structure and junk does not:
+every cell of a real pattern names a sample no higher than 31 and a period
+that is either 0 or within 27..=1712. A block that fails that test is a
+tail, kept verbatim in `Module::trailing`; a block that passes is a pattern
+no order-table entry happens to name, and is decoded as one. The one block
+the rule cannot judge is all-zero, which is byte-for-byte a legal empty
+pattern — it reads as a pattern. Either way the module still re-encodes
 byte-identically.
 
 ## Lossless: raw fields plus ergonomic accessors

@@ -68,12 +68,24 @@
 //! pattern data round-trips like everything else.
 //!
 //! The size rule assumes nothing follows the last sample, which is not true
-//! of every file: a module ripped out of an executable, padded to a block
-//! boundary, or stored inside a larger container carries surplus bytes at
-//! the end, and reading those as extra patterns shifts every sample's PCM
-//! into the junk. The order table caps the count as a cross-check — no file
-//! stores a pattern no order-table entry can name — and any surplus beyond
-//! that cap is kept verbatim in [`Module::trailing`], so the module still
+//! of every file: a module ripped out of an executable or stored inside a
+//! larger container can carry surplus bytes at the end, and reading those as
+//! extra patterns shifts every sample's PCM into the junk. Such a surplus
+//! survives decoding only when it is a whole number of 1024-byte units —
+//! any other amount, a 512-byte block pad included, fails the divisibility
+//! check above and comes back as [`DecodeError::Corrupt`].
+//!
+//! When a file's length implies more patterns than the order table names,
+//! the two readings — "N patterns plus a 1024-byte tail" and "N+1 patterns
+//! and no tail" — are the same size, and committing to either blindly
+//! corrupts the other case's PCM. [`decode`] looks at the disputed block
+//! instead, because pattern data has structure and junk does not: every
+//! cell of a real pattern names a sample no higher than 31 and a period
+//! that is either 0 or within 27..=1712. A block that fails that test is a
+//! tail, kept verbatim in [`Module::trailing`]; a block that passes is a
+//! pattern no order-table entry happens to name, and is decoded as one.
+//! The one block the rule cannot judge is all-zero, which is byte-for-byte
+//! a legal empty pattern; it reads as a pattern. Either way the module
 //! re-encodes byte-identically.
 //!
 //! # Losslessness: raw fields plus ergonomic accessors
@@ -342,8 +354,11 @@ pub struct Module {
     /// Bytes sitting after the last sample's PCM data, kept verbatim so a
     /// re-encode is byte-identical. Empty for a file that ends exactly where
     /// its sample data does, which is most of them; non-empty for a module
-    /// ripped out of an executable, padded to a block boundary, or stored
-    /// inside a larger container. [`encode`] appends these unchanged.
+    /// ripped out of an executable or stored inside a larger container.
+    /// The surplus must be a whole number of 1024-byte units to get this
+    /// far: any other amount fails [`decode`]'s divisibility check and comes
+    /// back as [`DecodeError::Corrupt`], so a 512-byte block pad is rejected
+    /// rather than kept here. [`encode`] appends these unchanged.
     pub trailing: Vec<u8>,
 }
 

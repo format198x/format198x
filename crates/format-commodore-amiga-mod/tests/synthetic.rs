@@ -5,9 +5,12 @@ use format_commodore_amiga_mod::{DecodeError, EncodeError, decode, encode, is_mo
 
 /// One looped square-wave sample, one pattern, a C-2 on channel 0 at row 0.
 fn synthetic_module() -> Vec<u8> {
-    let sample: Vec<u8> = (0..64)
-        .map(|i| if i < 32 { 100u8 } else { 156u8 })
-        .collect();
+    module_with_sample(&known_good_sample_0())
+}
+
+/// [`synthetic_module`] with sample 0's PCM replaced, so a test can choose
+/// bytes that land in the region the pattern count decides the extent of.
+fn module_with_sample(sample: &[u8]) -> Vec<u8> {
     let mut out = b"SYNTH".to_vec();
     out.resize(20, 0);
     for i in 0..31 {
@@ -30,7 +33,7 @@ fn synthetic_module() -> Vec<u8> {
     pattern[1] = (period & 0xFF) as u8;
     pattern[2] = (smp & 0x0F) << 4;
     out.extend_from_slice(&pattern);
-    out.extend_from_slice(&sample);
+    out.extend_from_slice(sample);
     out
 }
 
@@ -204,28 +207,212 @@ fn a_module_with_no_tail_has_no_trailing_bytes() {
     );
 }
 
+/// A 1024-byte block whose 256 cells all read as plausible pattern data:
+/// row 0, channel 0 plays sample 2 at period 340, and every other cell is
+/// an empty note. Deliberately different from [`synthetic_module`]'s own
+/// pattern, so a test can prove *which* block a decoded pattern came from.
+fn pattern_like_block() -> Vec<u8> {
+    let mut block = vec![0u8; 1024];
+    let (period, smp) = (340u16, 2u8);
+    block[0] = (smp & 0xF0) | (period >> 8) as u8;
+    block[1] = (period & 0xFF) as u8;
+    block[2] = (smp & 0x0F) << 4;
+    block
+}
+
+/// [`synthetic_module`] with `block` spliced in between its one real
+/// pattern and its sample data — so the file physically holds two patterns
+/// and no trailing bytes at all. The order table is all zeros, so nothing
+/// in it names the second pattern: this is exactly the file whose pattern
+/// count size alone cannot settle.
+fn module_with_second_pattern(block: &[u8]) -> Vec<u8> {
+    let mut bytes = synthetic_module();
+    let after_first_pattern = 1084 + 1024;
+    bytes.splice(
+        after_first_pattern..after_first_pattern,
+        block.iter().copied(),
+    );
+    bytes
+}
+
+/// Sample 0's PCM as [`synthetic_module`] stores it: 32 bytes of 100 then
+/// 32 of 156. Every test below compares against this rather than against a
+/// pattern count, because a misclassified block shifts where the PCM is
+/// read from while leaving the count self-consistent and the round-trip
+/// green.
+fn known_good_sample_0() -> Vec<u8> {
+    (0..64)
+        .map(|i| if i < 32 { 100u8 } else { 156u8 })
+        .collect()
+}
+
 #[test]
 fn a_garbage_tail_is_kept_out_of_the_pattern_count() {
-    // A module ripped out of an executable or padded to a block boundary
-    // carries surplus bytes after its last sample. The file-size rule alone
-    // reads a 1024-byte tail as a second pattern and then takes sample 0's
-    // PCM from the junk — a misparse that is self-consistent, so a
-    // round-trip assertion alone can never catch it.
+    // A module ripped out of an executable or padded out to a whole number
+    // of 1024-byte units carries surplus bytes after its last sample. The
+    // file-size rule alone reads a 1024-byte tail as a second pattern and
+    // then takes sample 0's PCM from the junk — a misparse that is
+    // self-consistent, so a round-trip assertion alone can never catch it.
+    //
+    // Note what this fixture does and does not cover: its order table is
+    // all zeros and it holds one real pattern, so the table's largest index
+    // plus one happens to equal the true pattern count. It says nothing
+    // about a file that stores a pattern no order-table entry names — see
+    // `an_unreferenced_pattern_is_kept_rather_than_clamped_away` for that
+    // case, which the opposite mistake corrupts just as quietly.
     let mut bytes = synthetic_module();
-    let original_sample: Vec<u8> = decode(&bytes).expect("decodes").samples[0].data.clone();
     bytes.extend(std::iter::repeat_n(0xAAu8, 1024));
 
     let m = decode(&bytes).expect("decodes");
     assert_eq!(m.patterns.len(), 1, "the tail is not a second pattern");
     assert_eq!(m.trailing, vec![0xAAu8; 1024], "the tail is kept verbatim");
     assert_eq!(
-        m.samples[0].data, original_sample,
+        m.samples[0].data,
+        known_good_sample_0(),
         "sample PCM must still come from the sample region, not the tail"
     );
     assert_eq!(
         encode(&m).expect("re-encodes"),
         bytes,
         "a module with a tail must still round-trip byte-for-byte"
+    );
+}
+
+#[test]
+fn an_unreferenced_pattern_is_kept_rather_than_clamped_away() {
+    // The mirror image of the test above, and the bug that clamping to the
+    // order table's largest index introduces. This file holds two patterns
+    // and no tail, but its all-zero order table names only the first.
+    // Clamping the count to what the table names moves sample 0's PCM read
+    // back into the second pattern's bytes — silently wrong audio, and
+    // `encode(decode(x)) == x` still holds, so only the PCM itself shows it.
+    let bytes = module_with_second_pattern(&pattern_like_block());
+
+    let m = decode(&bytes).expect("decodes");
+    assert_eq!(
+        m.samples[0].data,
+        known_good_sample_0(),
+        "sample PCM must come from the sample region, not from pattern 1"
+    );
+    assert_eq!(
+        m.samples[0].data[0], 100,
+        "the first PCM byte is the square wave's high level, not a pattern byte"
+    );
+    assert!(
+        m.trailing.is_empty(),
+        "the second pattern is pattern data, not a tail"
+    );
+    assert_eq!(m.patterns.len(), 2, "both stored patterns are decoded");
+    assert_eq!(
+        (m.patterns[1][0][0].period, m.patterns[1][0][0].sample),
+        (340, 2),
+        "pattern 1 must be the block that was spliced in, decoded as notes"
+    );
+    assert_eq!(
+        encode(&m).expect("re-encodes"),
+        bytes,
+        "a module with an unreferenced pattern must round-trip byte-for-byte"
+    );
+}
+
+#[test]
+fn an_all_zero_unreferenced_pattern_is_kept() {
+    // An all-zero block is byte-for-byte a legal empty pattern — 256 cells
+    // of "no note" — so a silent unreferenced pattern is kept, and sample 0
+    // still reads from the sample region.
+    let bytes = module_with_second_pattern(&vec![0u8; 1024]);
+
+    let m = decode(&bytes).expect("decodes");
+    assert_eq!(
+        m.samples[0].data,
+        known_good_sample_0(),
+        "sample PCM must come from the sample region, not from the silent pattern"
+    );
+    assert!(m.trailing.is_empty(), "a silent pattern is not a tail");
+    assert_eq!(m.patterns.len(), 2, "the silent pattern is decoded too");
+    assert!(
+        m.patterns[1]
+            .iter()
+            .flatten()
+            .all(|n| n.period == 0 && n.sample == 0 && n.effect == 0 && n.param == 0),
+        "pattern 1 decodes as 64 rows of empty notes"
+    );
+    assert_eq!(
+        encode(&m).expect("re-encodes"),
+        bytes,
+        "the module must still round-trip byte-for-byte"
+    );
+}
+
+#[test]
+fn an_all_zero_tail_after_real_sample_data_is_still_a_tail() {
+    // Zero padding is the commonest tail there is, and it does not defeat
+    // the rule the way an all-zero *disputed block* would: the block under
+    // dispute starts where the samples do, not where the padding does, so
+    // it is sample 0's own PCM that gets inspected — and 100 as a cell byte
+    // means sample number 102, which no module has.
+    let mut bytes = synthetic_module();
+    bytes.extend(std::iter::repeat_n(0u8, 1024));
+
+    let m = decode(&bytes).expect("decodes");
+    assert_eq!(
+        m.samples[0].data,
+        known_good_sample_0(),
+        "sample PCM must still come from the sample region"
+    );
+    assert_eq!(m.patterns.len(), 1, "the padding is not a second pattern");
+    assert_eq!(m.trailing, vec![0u8; 1024], "the padding is kept verbatim");
+    assert_eq!(encode(&m).expect("re-encodes"), bytes);
+}
+
+#[test]
+fn an_all_zero_block_ahead_of_the_pcm_is_the_rules_one_blind_spot() {
+    // The honest limit, pinned here so it cannot change unnoticed. An
+    // all-zero 1024-byte block is byte-for-byte a legal empty pattern, so
+    // when the disputed block really is the start of a sample whose PCM
+    // opens with 1024 zero bytes, no parser can tell it from a pattern.
+    // This file has one pattern, a 2048-byte sample that starts with
+    // silence, and a 1024-byte tail; the rule reads the silence as a second
+    // pattern and sample 0's PCM then runs 1024 bytes late, straight into
+    // the tail.
+    //
+    // This is not a regression — it is what the file-size rule did before
+    // any cross-check existed. Fixing it would need information the bytes
+    // do not carry.
+    let mut sample = vec![0u8; 1024];
+    sample.extend(std::iter::repeat_n(100u8, 1024));
+    let mut bytes = module_with_sample(&sample);
+    bytes.extend(std::iter::repeat_n(0xAAu8, 1024));
+
+    let m = decode(&bytes).expect("decodes");
+    assert_eq!(
+        m.patterns.len(),
+        2,
+        "the silent lead-in is read as a pattern"
+    );
+    assert!(
+        m.trailing.is_empty(),
+        "so nothing is left over for the tail"
+    );
+    assert_ne!(
+        m.samples[0].data, sample,
+        "sample 0's PCM is not the module's real sample data"
+    );
+    assert_eq!(
+        &m.samples[0].data[..1024],
+        &vec![100u8; 1024][..],
+        "it starts 1024 bytes late, at the sample's second half"
+    );
+    assert_eq!(
+        &m.samples[0].data[1024..],
+        &vec![0xAAu8; 1024][..],
+        "and runs on into the tail"
+    );
+    assert_eq!(
+        encode(&m).expect("re-encodes"),
+        bytes,
+        "the misparse is still byte-identical on re-encode, which is exactly \
+         why these tests assert the PCM rather than the round-trip"
     );
 }
 

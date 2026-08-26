@@ -36,6 +36,35 @@ struct SampleHeader {
     repeat_length_words: u16,
 }
 
+/// Whether a 1024-byte block reads as pattern data rather than as junk that
+/// happens to sit where a pattern would.
+///
+/// Used only to settle the one case file size cannot: a file whose length
+/// implies more patterns than the order table names is either "N patterns
+/// plus a 1024-byte tail" or "N+1 patterns and no tail", and choosing wrong
+/// either way shifts every sample's PCM read (see [`decode`]).
+///
+/// A block qualifies when *every* one of its 256 cells passes both checks:
+///
+/// - **Sample number `<= 31`.** A cell's sample number is the two nibbles
+///   `(byte0 & 0xF0) | (byte2 >> 4)`, so the bytes can encode 0..=255, but a
+///   module has 31 samples. Anything above 31 cannot be pattern data.
+/// - **Period 0, or in `27..=1712`.** The period is the 12 bits
+///   `((byte0 & 0x0F) << 8) | byte1`. Zero means "no note"; the range covers
+///   every octave seen in the wild, well beyond ProTracker's own 113..=856.
+///
+/// The rule is not total, and cannot be: an all-zero block passes, because
+/// byte-for-byte it *is* a legal empty pattern — indistinguishable from
+/// zero padding by any parser. Such a block is read as a pattern, which is
+/// what the size rule alone did before this check existed.
+fn looks_like_pattern_data(block: &[u8]) -> bool {
+    block.chunks_exact(4).all(|cell| {
+        let sample = (cell[0] & 0xF0) | (cell[2] >> 4);
+        let period = (u16::from(cell[0] & 0x0F) << 8) | u16::from(cell[1]);
+        sample <= 31 && (period == 0 || (27..=1712).contains(&period))
+    })
+}
+
 /// Decode a ProTracker MOD module from raw bytes.
 ///
 /// # Errors
@@ -139,26 +168,49 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
 
     // The size rule alone assumes the file is exactly header + patterns +
     // samples, with nothing after the last sample. Real modules break that
-    // assumption often: ones ripped out of an executable, padded to a block
-    // boundary, or stored inside a larger container all carry surplus bytes
-    // at the end. The size rule reads that surplus as extra patterns, which
-    // shifts every sample's PCM forward into the junk — and because the
-    // misparse is self-consistent, `encode(decode(x)) == x` still holds and
-    // no round-trip test can catch it.
+    // assumption often: ones ripped out of an executable, padded to a whole
+    // number of 1024-byte units, or stored inside a larger container all
+    // carry surplus bytes at the end. The size rule reads that surplus as
+    // extra patterns, which shifts every sample's PCM forward into the junk
+    // — and because the misparse is self-consistent, `encode(decode(x)) ==
+    // x` still holds and no round-trip test can catch it.
     //
-    // The order table gives a free upper bound to cross-check against: no
-    // file stores a pattern that nothing in the 128-entry table can even
-    // name, so the largest index in the table plus one caps the count. When
-    // the size rule wants more patterns than that, the surplus is not
-    // pattern data; clamp the count and keep the surplus verbatim in
-    // `Module::trailing` so a re-encode is still byte-identical.
+    // The order table's largest index plus one is a tempting upper bound,
+    // but clamping to it blindly is the same bug pointed the other way: a
+    // file can physically store a pattern that no order-table entry names,
+    // and clamping that file's count moves every sample's PCM read back
+    // into the last pattern. File size alone cannot separate "N patterns
+    // plus a 1024-byte tail" from "N+1 patterns and no tail".
     //
-    // The reverse case — the size rule wanting fewer patterns than the
-    // table's largest index implies — is the hidden-pattern/garbage-tail
+    // The bytes can, though, because pattern data has structure and junk
+    // does not. So when the size rule wants more patterns than the table
+    // can name, look at the first disputed block and decide what it is; see
+    // `looks_like_pattern_data` for the rule and for the one case it cannot
+    // decide. A block that is not pattern-like is a tail: clamp the count
+    // and keep the surplus verbatim in `Module::trailing`, so a re-encode
+    // is still byte-identical. A block that is pattern-like is an
+    // unreferenced pattern: keep the size-derived count.
+    //
+    // When the size rule wants no more patterns than the table can name,
+    // nothing is in dispute — that is the hidden-pattern/garbage-tail
     // situation above, where the table over-counts and the size rule is
-    // right. Taking the smaller of the two handles both.
+    // right — so the size rule stands unchanged.
     let table_max = usize::from(order_table.iter().copied().max().unwrap_or(0)) + 1;
-    let pattern_count = (available_for_patterns / PATTERN_LEN).min(table_max);
+    let size_count = available_for_patterns / PATTERN_LEN;
+    let pattern_count = if size_count > table_max {
+        let disputed = patterns_offset + table_max * PATTERN_LEN;
+        // `size_count > table_max` puts this whole block inside the file;
+        // `get` rather than indexing so a future change to that reasoning
+        // cannot turn into a panic behind the FFI boundary.
+        let block = bytes.get(disputed..disputed + PATTERN_LEN);
+        if block.is_some_and(looks_like_pattern_data) {
+            size_count
+        } else {
+            table_max
+        }
+    } else {
+        size_count
+    };
     let patterns_end = patterns_offset + pattern_count * PATTERN_LEN;
 
     // `patterns_end` is bounded by the file length above, so every cell
