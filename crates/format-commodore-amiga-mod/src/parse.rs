@@ -102,27 +102,44 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
     let mut order_table = [0u8; ORDER_TABLE_LEN];
     order_table.copy_from_slice(&bytes[ORDERS_OFFSET..ORDERS_OFFSET + ORDER_TABLE_LEN]);
 
-    let pattern_count = order_table[..usize::from(song_length)]
-        .iter()
-        .copied()
-        .max()
-        .map_or(0usize, |m| usize::from(m) + 1);
+    // The pattern count is NOT reliably derivable from the order table —
+    // neither the played prefix (`order_table[..song_length]`) nor even the
+    // whole 128-entry table. Some real files store pattern data referenced
+    // only by order-table slots *beyond* the song length ("hidden" patterns
+    // that never play but are still physically present), which the
+    // played-prefix rule silently drops. But the unplayed tail of the order
+    // table is also where real files routinely leave non-zero leftover
+    // garbage that does NOT correspond to any stored pattern — taking
+    // `max()` over the whole table over-counts on those files and reads
+    // past the end of the file (confirmed: one real file's garbage byte
+    // implied 233 patterns when only 9 were physically present). Nothing in
+    // the order table itself distinguishes a genuine hidden-pattern index
+    // from garbage.
+    //
+    // The reliable derivation uses the file's own arithmetic instead: the
+    // format's three regions (1084-byte header, patterns, then all 31
+    // samples' PCM data concatenated) are contiguous and exhaustive, so the
+    // pattern data's size is exactly `bytes.len() - 1084 - total sample
+    // bytes` — independent of what the order table claims. Verified exact
+    // (evenly divisible by 1024) on every file across two independent
+    // real-media corpora, including both the hidden-pattern files and the
+    // garbage-tail files.
     let patterns_offset = MAGIC_OFFSET + 4;
-    let patterns_len = pattern_count
-        .checked_mul(PATTERN_LEN)
-        .ok_or(DecodeError::Corrupt {
-            what: "pattern count overflowed while computing pattern data size",
+    let total_sample_bytes: usize = headers.iter().map(|h| h.data_len).sum();
+    let available_for_patterns = bytes
+        .len()
+        .checked_sub(patterns_offset)
+        .and_then(|v| v.checked_sub(total_sample_bytes))
+        .ok_or(DecodeError::Truncated {
+            what: "pattern and sample data",
         })?;
-    let patterns_end = patterns_offset
-        .checked_add(patterns_len)
-        .ok_or(DecodeError::Corrupt {
-            what: "pattern data extent overflowed",
-        })?;
-    if bytes.len() < patterns_end {
-        return Err(DecodeError::Truncated {
-            what: "pattern data",
+    if !available_for_patterns.is_multiple_of(PATTERN_LEN) {
+        return Err(DecodeError::Corrupt {
+            what: "pattern data is not a whole number of 1024-byte patterns",
         });
     }
+    let pattern_count = available_for_patterns / PATTERN_LEN;
+    let patterns_end = patterns_offset + available_for_patterns;
 
     let mut patterns = Vec::with_capacity(pattern_count);
     for p in 0..pattern_count {

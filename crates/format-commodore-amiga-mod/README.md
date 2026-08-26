@@ -3,8 +3,9 @@
 Parse and write Amiga **ProTracker MOD** modules in Rust: 31 sample slots,
 pattern data, and the order table. Dependency-free (`core`/`std` only),
 bidirectional (`decode`/`encode`), lossless (`encode(decode(bytes)) ==
-bytes`, verified against 17 real Amiga music-disk modules — see the task
-report), and panic-free on malformed input.
+bytes`, verified against 45 real Amiga music-disk modules across two
+independent corpora — see the task report), and panic-free on malformed
+input.
 
 **This crate parses and writes only. It does not play modules.** There is no
 mixer, no tick loop, and no effect processing here — playback lives in
@@ -47,6 +48,26 @@ is recognised by `is_module` but rejected by `decode` with
 `DecodeError::UnsupportedChannelCount` — this crate cannot represent a wider
 pattern row without corrupting it, so it says so rather than misparsing.
 
+## Hidden patterns
+
+The pattern count is **not** reliably derivable from the order table at
+all — the widely-cited community MOD spec glosses over this entirely. Some
+real files store pattern data referenced only by order-table slots past the
+song length ("hidden" patterns that never play but are still physically
+present); but other real files leave non-zero leftover garbage in that same
+unplayed tail that does *not* correspond to a stored pattern. Nothing in
+the table tells the two cases apart — one real file's garbage byte implied
+233 patterns where only 9 were physically present.
+
+`decode` instead derives the pattern count from the file's own arithmetic:
+header (1084 bytes), patterns, and all 31 samples' PCM data are contiguous
+and exhaustive, so pattern data is exactly `file length - 1084 - total
+sample bytes`, independent of the order table. Verified exact on every file
+across two independent real-media corpora, including both the
+hidden-pattern files and the garbage-tail files. `encode` always writes
+back exactly `patterns.len()` patterns, so this data round-trips like
+everything else.
+
 ## Lossless: raw fields plus ergonomic accessors
 
 An editor (Studio198x's tracker, the reason this matters) that opens a
@@ -70,9 +91,11 @@ the accessors; write through the raw fields (or leave them as `decode` set
 them) so nothing is lost on the way back out.
 
 This was verified, not assumed: an earlier version of this crate trimmed
-and normalised these fields, and re-encoding 17 real Amiga music-disk
-modules came back 0/17 byte-identical — every divergence traced to exactly
-these fields. Storing them raw instead brought that to **17/17**.
+and normalised these fields, and re-encoding a corpus of real Amiga
+music-disk modules came back 0/17 byte-identical — every divergence traced
+to exactly these fields. Storing them raw instead brought that to 17/17,
+and a second, independent 28-module corpus (which additionally exercised
+the hidden-pattern rule above) came back 28/28.
 
 ## Bounds-checked against hostile input
 

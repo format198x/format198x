@@ -3,8 +3,9 @@
 //! A `.mod` file holds 31 sample slots of signed 8-bit PCM, a 128-entry order
 //! table, and a sequence of 4-channel, 64-row patterns. This crate reads and
 //! writes that byte layout **losslessly**: `encode(decode(bytes)) == bytes`
-//! for every 4-channel module, verified against 17 real Amiga music-disk
-//! modules (see the task report). **It does not play modules** — no mixer,
+//! for every 4-channel module, verified against 45 real Amiga music-disk
+//! modules across two independent corpora (see the task report). **It does
+//! not play modules** — no mixer,
 //! no tick loop, no effect processing. Playback lives in `play198x-core`:
 //! tick scheduling and effect dispatch are playback semantics, not file
 //! layout, and keeping them out of this crate is why it stays
@@ -31,6 +32,31 @@
 //! a promise of decodability — but rejected by [`decode`] with
 //! [`DecodeError::UnsupportedChannelCount`] rather than silently
 //! misinterpreting its wider pattern rows as 4-channel ones.
+//!
+//! # Hidden patterns
+//!
+//! The number of patterns a file stores is **not** reliably implied by
+//! anything in the order table — the widely-cited community MOD
+//! specification glosses over this entirely. Some real files store
+//! additional pattern data referenced only by order-table slots *beyond*
+//! the song length ("hidden" patterns that never play but are still
+//! physically present); but the unplayed tail of the order table is also
+//! where other real files leave non-zero leftover garbage that does *not*
+//! correspond to a stored pattern. Nothing in the table itself tells the
+//! two apart — one real file's garbage byte implied 233 patterns when only
+//! 9 were physically present, which would read straight past the end of
+//! the file.
+//!
+//! [`decode`] instead derives the pattern count from the file's own
+//! arithmetic: the format's three regions (the 1084-byte header, the
+//! patterns, and all 31 samples' PCM data, concatenated in that order) are
+//! contiguous and exhaustive, so the pattern data's exact size is
+//! `bytes.len() - 1084 - (the samples' total byte length)` — independent of
+//! whatever the order table claims. Verified exact (evenly divisible by
+//! 1024) on every file across two independent real-media corpora,
+//! including both the hidden-pattern files and the garbage-tail files.
+//! [`encode`] writes back exactly `patterns.len()` patterns, so hidden
+//! pattern data round-trips like everything else.
 //!
 //! # Losslessness: raw fields plus ergonomic accessors
 //!
@@ -227,9 +253,12 @@ pub struct Note {
 ///
 /// `patterns[p]` is a stored pattern (64 rows of 4 channels each);
 /// `orders()[i]` is the pattern index played at song position `i`. `decode`
-/// stores exactly `max(orders()) + 1` patterns, matching how many the file
-/// physically contains; `encode` writes exactly `patterns.len()` of them
-/// back, whatever that is for a hand-built `Module`.
+/// stores exactly as many patterns as the file physically contains,
+/// derived from the file's total size rather than from the order table
+/// (see the crate documentation's "Hidden patterns" section — the order
+/// table cannot reliably say how many patterns are stored); `encode` writes
+/// exactly `patterns.len()` of them back, whatever that is for a hand-built
+/// `Module`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
     /// The module's 20-byte title field, exactly as stored — including any
