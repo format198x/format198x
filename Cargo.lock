@@ -21,3 +21,7 @@ version = "0.1.0"
 [[package]]
 name = "format-sinclair-zx-spectrum-scr"
 version = "0.1.0"
+
+[[package]]
+name = "format-sinclair-zx-spectrum-tap"
+version = "0.1.0"
