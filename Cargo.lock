@@ -11,6 +11,17 @@ name = "format-commodore-amiga-ilbm"
 version = "0.1.0"
 
 [[package]]
+name = "format-commodore-amiga-mod"
+version = "0.1.0"
+
+[[package]]
+name = "format-commodore-amiga-powerpacker"
+version = "0.1.0"
+dependencies = [
+ "format-commodore-amiga-adf",
+]
+
+[[package]]
 name = "format-commodore-c64-art-studio"
 version = "0.1.0"
 
