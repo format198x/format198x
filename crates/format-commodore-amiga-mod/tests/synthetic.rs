@@ -37,15 +37,15 @@ fn synthetic_module() -> Vec<u8> {
 #[test]
 fn parses_a_synthetic_module() {
     let m = decode(&synthetic_module()).expect("decodes");
-    assert_eq!(m.title, "SYNTH");
-    assert_eq!(m.orders.len(), 1);
+    assert_eq!(m.title(), "SYNTH");
+    assert_eq!(m.orders().len(), 1);
     assert_eq!(m.patterns.len(), 1);
     assert_eq!(m.patterns[0].len(), 64);
     assert_eq!(m.patterns[0][0][0].period, 428);
     assert_eq!(m.patterns[0][0][0].sample, 1);
     let used: Vec<_> = m.samples.iter().filter(|s| !s.data.is_empty()).collect();
     assert_eq!(used.len(), 1);
-    assert_eq!(used[0].name, "square");
+    assert_eq!(used[0].name(), "square");
     assert_eq!(used[0].volume, 64);
     assert_eq!(used[0].data.len(), 64);
 }

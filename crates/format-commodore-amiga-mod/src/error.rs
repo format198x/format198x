@@ -70,16 +70,17 @@ impl std::error::Error for DecodeError {}
 
 /// Why a [`Module`](crate::Module) could not be encoded as ProTracker MOD
 /// bytes.
+///
+/// Most header fields are raw bytes/words by the time they reach `encode`
+/// (see the crate documentation's Losslessness section), so there is
+/// nothing to validate for them — they write back unconditionally. Only
+/// values `encode` still has to *compute* (a sample's length in words from
+/// `data.len()`, the pattern byte count) can fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncodeError {
     /// A ProTracker module always has exactly 31 sample slots.
     WrongSampleCount {
         /// How many samples the module actually had.
-        found: usize,
-    },
-    /// The order table has at most 128 entries.
-    TooManyOrders {
-        /// How many order entries the module actually had.
         found: usize,
     },
     /// Every pattern is exactly 64 rows.
@@ -93,12 +94,6 @@ pub enum EncodeError {
     /// lengths are stored in 16-bit words) or too long for the 16-bit word
     /// count the header field holds.
     SampleDataInvalid {
-        /// The offending sample's index (0..31).
-        index: usize,
-    },
-    /// A sample's loop start or length could not be represented in the
-    /// header's 16-bit word fields.
-    LoopInvalid {
         /// The offending sample's index (0..31).
         index: usize,
     },
@@ -123,22 +118,12 @@ impl core::fmt::Display for EncodeError {
             Self::WrongSampleCount { found } => {
                 write!(f, "a MOD module needs exactly 31 samples, found {found}")
             }
-            Self::TooManyOrders { found } => {
-                write!(
-                    f,
-                    "the order table holds at most 128 entries, found {found}"
-                )
-            }
             Self::WrongPatternRows { pattern, found } => {
                 write!(f, "pattern {pattern} has {found} rows, expected exactly 64")
             }
             Self::SampleDataInvalid { index } => write!(
                 f,
                 "sample {index}'s data length cannot be represented as a 16-bit word count"
-            ),
-            Self::LoopInvalid { index } => write!(
-                f,
-                "sample {index}'s loop start or length cannot be represented as a 16-bit word count"
             ),
             Self::NoteOutOfRange {
                 pattern,

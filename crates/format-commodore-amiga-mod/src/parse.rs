@@ -5,33 +5,37 @@
 //! that pushes the pattern count past what the file holds, or a sample
 //! length that overruns the file all become a typed [`DecodeError`], never
 //! an out-of-bounds index or an arithmetic overflow panic.
+//!
+//! Every field is stored exactly as read — no trimming, no collapsing "no
+//! loop" onto a single value, no normalising the magic — so [`crate::encode`]
+//! can reproduce the original bytes exactly. See the crate documentation's
+//! "Losslessness" section.
 
 use crate::error::DecodeError;
-use crate::{MAGIC_OFFSET, MAGICS, Module, Note, Sample};
+use crate::{
+    MAGIC_OFFSET, MAGICS, Module, Note, ORDER_TABLE_LEN, SAMPLE_NAME_LEN, Sample, TITLE_LEN,
+};
 
-const TITLE_LEN: usize = 20;
 const NUM_SAMPLES: usize = 31;
 const SAMPLE_HEADER_LEN: usize = 30;
-const SAMPLE_NAME_LEN: usize = 22;
 const HEADERS_OFFSET: usize = TITLE_LEN;
 const SONG_LENGTH_OFFSET: usize = HEADERS_OFFSET + NUM_SAMPLES * SAMPLE_HEADER_LEN; // 950
 const RESTART_OFFSET: usize = SONG_LENGTH_OFFSET + 1; // 951
 const ORDERS_OFFSET: usize = RESTART_OFFSET + 1; // 952
-const ORDERS_LEN: usize = 128;
 const ROWS_PER_PATTERN: usize = 64;
 const CHANNELS: usize = 4;
 const PATTERN_LEN: usize = ROWS_PER_PATTERN * CHANNELS * 4; // 1024
 
-/// One sample header's fields, ahead of knowing where its data lives in the
-/// file (that depends on every earlier sample's length, so it is resolved
-/// in a second pass).
+/// One sample header's raw fields, ahead of knowing where its data lives in
+/// the file (that depends on every earlier sample's length, so it is
+/// resolved in a second pass).
 struct SampleHeader {
-    name: String,
+    name_bytes: [u8; SAMPLE_NAME_LEN],
     data_len: usize,
     volume: u8,
-    finetune: i8,
-    loop_start: usize,
-    loop_len: usize,
+    finetune_byte: u8,
+    repeat_start_words: u16,
+    repeat_length_words: u16,
 }
 
 /// Decode a ProTracker MOD module from raw bytes.
@@ -62,51 +66,43 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
         return Err(DecodeError::UnsupportedChannelCount { magic });
     }
 
-    let title = read_padded_string(&bytes[0..TITLE_LEN]);
+    let mut title_bytes = [0u8; TITLE_LEN];
+    title_bytes.copy_from_slice(&bytes[0..TITLE_LEN]);
 
     let mut headers = Vec::with_capacity(NUM_SAMPLES);
     for i in 0..NUM_SAMPLES {
         let start = HEADERS_OFFSET + i * SAMPLE_HEADER_LEN;
         let hdr = &bytes[start..start + SAMPLE_HEADER_LEN];
 
-        let name = read_padded_string(&hdr[0..SAMPLE_NAME_LEN]);
+        let mut name_bytes = [0u8; SAMPLE_NAME_LEN];
+        name_bytes.copy_from_slice(&hdr[0..SAMPLE_NAME_LEN]);
         let length_words = u16::from_be_bytes([hdr[22], hdr[23]]);
-        let finetune_raw = hdr[24] & 0x0F;
-        // finetune_raw is 0..=15, so the cast to i8 is exact; the format's
-        // finetune is a signed nibble (-8..=7), so 8..=15 folds back by 16.
-        let finetune = if finetune_raw >= 8 {
-            (finetune_raw as i8) - 16
-        } else {
-            finetune_raw as i8
-        };
+        let finetune_byte = hdr[24];
         let volume = hdr[25];
         let repeat_start_words = u16::from_be_bytes([hdr[26], hdr[27]]);
         let repeat_length_words = u16::from_be_bytes([hdr[28], hdr[29]]);
 
         headers.push(SampleHeader {
-            name,
+            name_bytes,
             data_len: usize::from(length_words) * 2,
             volume,
-            finetune,
-            loop_start: usize::from(repeat_start_words) * 2,
-            loop_len: if repeat_length_words <= 1 {
-                0
-            } else {
-                usize::from(repeat_length_words) * 2
-            },
+            finetune_byte,
+            repeat_start_words,
+            repeat_length_words,
         });
     }
 
     let song_length = bytes[SONG_LENGTH_OFFSET];
-    let _restart = bytes[RESTART_OFFSET]; // historically set to 127, ignored by ProTracker; see crate docs.
-    if usize::from(song_length) > ORDERS_LEN {
+    let restart = bytes[RESTART_OFFSET];
+    if usize::from(song_length) > ORDER_TABLE_LEN {
         return Err(DecodeError::Corrupt {
             what: "song length exceeds the 128-entry order table",
         });
     }
-    let orders = bytes[ORDERS_OFFSET..ORDERS_OFFSET + usize::from(song_length)].to_vec();
+    let mut order_table = [0u8; ORDER_TABLE_LEN];
+    order_table.copy_from_slice(&bytes[ORDERS_OFFSET..ORDERS_OFFSET + ORDER_TABLE_LEN]);
 
-    let pattern_count = orders
+    let pattern_count = order_table[..usize::from(song_length)]
         .iter()
         .copied()
         .max()
@@ -169,26 +165,22 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
         let data: Vec<i8> = bytes[cursor..end].iter().map(|&b| b as i8).collect();
         cursor = end;
         samples.push(Sample {
-            name: header.name,
+            name_bytes: header.name_bytes,
             data,
             volume: header.volume,
-            finetune: header.finetune,
-            loop_start: header.loop_start,
-            loop_len: header.loop_len,
+            finetune_byte: header.finetune_byte,
+            repeat_start_words: header.repeat_start_words,
+            repeat_length_words: header.repeat_length_words,
         });
     }
 
     Ok(Module {
-        title,
+        title_bytes,
         samples,
-        orders,
+        song_length,
+        order_table,
+        restart,
+        magic,
         patterns,
     })
-}
-
-/// Read a fixed-width, NUL-padded field as a string, trimmed at the first
-/// NUL byte (or the field's full width, if there is none).
-fn read_padded_string(bytes: &[u8]) -> String {
-    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    String::from_utf8_lossy(&bytes[..end]).into_owned()
 }

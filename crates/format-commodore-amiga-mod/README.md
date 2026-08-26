@@ -2,7 +2,9 @@
 
 Parse and write Amiga **ProTracker MOD** modules in Rust: 31 sample slots,
 pattern data, and the order table. Dependency-free (`core`/`std` only),
-bidirectional (`decode`/`encode`), and panic-free on malformed input.
+bidirectional (`decode`/`encode`), lossless (`encode(decode(bytes)) ==
+bytes`, verified against 17 real Amiga music-disk modules — see the task
+report), and panic-free on malformed input.
 
 **This crate parses and writes only. It does not play modules.** There is no
 mixer, no tick loop, and no effect processing here — playback lives in
@@ -21,11 +23,10 @@ use format_commodore_amiga_mod::{decode, encode, is_module};
 let bytes = std::fs::read("tune.mod")?;
 if is_module(&bytes) {
     let module = decode(&bytes)?;
-    println!("{} — {} samples, {} patterns", module.title, module.samples.len(), module.patterns.len());
+    println!("{} — {} samples, {} patterns", module.title(), module.samples.len(), module.patterns.len());
 
     let rebuilt = encode(&module)?;
-    // `rebuilt` matches `bytes` byte-for-byte for the common case — see
-    // "What a round-trip cannot preserve" below for the two exceptions.
+    assert_eq!(rebuilt, bytes); // lossless: every byte round-trips
 }
 ```
 
@@ -46,34 +47,32 @@ is recognised by `is_module` but rejected by `decode` with
 `DecodeError::UnsupportedChannelCount` — this crate cannot represent a wider
 pattern row without corrupting it, so it says so rather than misparsing.
 
-## What a round-trip cannot preserve
+## Lossless: raw fields plus ergonomic accessors
 
-`Module`'s fields hold the *meaningful* content of a file (a title trimmed
-at its terminator, an order table trimmed to the song length, a loop flag
-rather than a raw repeat length), not its raw bytes byte-for-byte. Verified
-against 17 real Amiga music-disk modules (see the task report): every one
-diverged from `encode(decode(bytes))` only in these ways — never in pattern
-data, sample PCM, or any other header field:
+An editor (Studio198x's tracker, the reason this matters) that opens a
+module, changes one note, and saves it must not silently degrade every byte
+it didn't touch. So `Module` and `Sample` store the file's raw bytes and
+words directly — `title_bytes`, `name_bytes`, `order_table`, `restart`,
+`magic`, `finetune_byte`, `repeat_start_words`, `repeat_length_words` —
+rather than a value derived from them. Nothing is thrown away: a decoded
+module's entire byte content survives, including bytes ProTracker itself
+never reads (a name's leftover bytes past its NUL, order-table padding past
+the song length, a finetune byte's unused upper nibble, the specific
+"no loop" encoding a sample used, the restart byte, the exact magic
+variant).
 
-- **The restart byte** (offset 951) — "historically set to 127, but can be
-  safely ignored" per the community format documentation. `encode` always
-  writes `0`.
-- **The magic variant** when it isn't `M.K.` — `encode` always writes
-  `M.K.`, even if the original used `M!K!`, `FLT4`, or `4CHN`.
-- **Bytes trailing a name or the title past its first NUL.** Real files
-  routinely leave non-zero leftover bytes there; `decode` trims at the
-  first NUL (so `title`/`name` hold a clean string), and `encode`
-  zero-pads instead of restoring the leftovers.
-- **Order-table bytes past the song length.** `orders` holds only the used
-  prefix; `encode` zero-pads the rest of the 128-entry table.
-- **A loop length of exactly one word.** Both `0` and `1` words mean "no
-  loop" and decode to `loop_len = 0`; `encode` always writes `0` back.
-- **A finetune byte's unused upper nibble** — discarded on decode, always
-  written back as zero.
+Raw byte arrays aren't pleasant to work with directly, so every field with
+a more useful shape also has an accessor: `title()`/`name()` return the
+trimmed, readable `&str`; `orders()` returns the order table's played
+prefix; `finetune()` returns the signed nibble value; `loop_start()`,
+`loop_len()`, and `is_looped()` give the loop points in bytes. Read through
+the accessors; write through the raw fields (or leave them as `decode` set
+them) so nothing is lost on the way back out.
 
-Every other byte round-trips exactly: every pattern cell, every sample's
-PCM data, every sample length/volume/loop-start, the song length, and the
-magic when it is `M.K.`.
+This was verified, not assumed: an earlier version of this crate trimmed
+and normalised these fields, and re-encoding 17 real Amiga music-disk
+modules came back 0/17 byte-identical — every divergence traced to exactly
+these fields. Storing them raw instead brought that to **17/17**.
 
 ## Bounds-checked against hostile input
 

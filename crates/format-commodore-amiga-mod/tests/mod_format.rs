@@ -29,11 +29,13 @@ fn identifies_by_magic_at_1080_not_by_extension() {
     assert!(!is_module(&[0u8; 100]));
 }
 
-/// Decodes every `.mod` file (case-insensitive) it finds under
-/// `MOD198X_CORPUS`, plus a byte-exact round-trip check, against genuine
-/// Amiga music-disk modules. Gated behind an environment variable and
-/// `#[ignore]` because the modules are real media and this repository never
-/// commits media (reference by path only).
+/// Decodes every `.mod` file it finds under `MOD198X_CORPUS` and asserts a
+/// byte-exact round-trip against genuine Amiga music-disk modules —
+/// `Module`/`Sample` are lossless (see the crate documentation), so a real
+/// 4-channel module failing to round-trip byte-for-byte is a bug, not an
+/// expected divergence. Gated behind an environment variable and `#[ignore]`
+/// because the modules are real media and this repository never commits
+/// media (reference by path only).
 ///
 /// Run it with, for example:
 ///
@@ -85,7 +87,9 @@ fn decodes_a_directory_of_real_modules() {
     eprintln!(
         "{checked} real modules decoded without panicking; {identical}/{checked} round-tripped byte-identical"
     );
-    if !differing.is_empty() {
-        eprintln!("modules that did not round-trip byte-identical: {differing:?}");
-    }
+    assert!(
+        differing.is_empty(),
+        "{}/{checked} modules did not round-trip byte-identical: {differing:?}",
+        differing.len()
+    );
 }

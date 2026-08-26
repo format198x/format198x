@@ -2,11 +2,13 @@
 //!
 //! A `.mod` file holds 31 sample slots of signed 8-bit PCM, a 128-entry order
 //! table, and a sequence of 4-channel, 64-row patterns. This crate reads and
-//! writes that byte layout. **It does not play modules** — no mixer, no tick
-//! loop, no effect processing. Playback lives in `play198x-core`: tick
-//! scheduling and effect dispatch are playback semantics, not file layout,
-//! and keeping them out of this crate is why it stays dependency-free and
-//! trivially embeddable behind an FFI boundary. See
+//! writes that byte layout **losslessly**: `encode(decode(bytes)) == bytes`
+//! for every 4-channel module, verified against 17 real Amiga music-disk
+//! modules (see the task report). **It does not play modules** — no mixer,
+//! no tick loop, no effect processing. Playback lives in `play198x-core`:
+//! tick scheduling and effect dispatch are playback semantics, not file
+//! layout, and keeping them out of this crate is why it stays
+//! dependency-free and trivially embeddable behind an FFI boundary. See
 //! `198x/reference/by-topic/music-formats/protracker-playback-reference.md`
 //! for the playback semantics this crate deliberately does not implement —
 //! including a place where the widely-cited community MOD specification is
@@ -30,45 +32,28 @@
 //! [`DecodeError::UnsupportedChannelCount`] rather than silently
 //! misinterpreting its wider pattern rows as 4-channel ones.
 //!
-//! # What a round-trip cannot preserve
+//! # Losslessness: raw fields plus ergonomic accessors
 //!
-//! [`Module`]'s fields are sized to the *meaningful* content of the file
-//! (a title trimmed at its terminator, an order table trimmed to the song
-//! length, a loop flag rather than a raw repeat length), not to its raw
-//! bytes. That is what lets the required tests assert a clean `"SYNTH"`
-//! title and a 1-entry `orders` for a 1-position song — but it also means a
-//! handful of byte positions are not reconstructable from a decoded
-//! `Module`, confirmed empirically against 17 real Amiga music-disk modules
-//! (see the task report): every one of them diverged from
-//! `encode(decode(bytes))` in only these ways, never in pattern data, sample
-//! PCM, or any other header field:
+//! An editor (Studio198x's tracker) that opens a module, changes one note,
+//! and saves it must not silently corrupt every byte it didn't touch. So
+//! [`Module`] and [`Sample`] store the file's raw bytes and words directly —
+//! [`Module::title_bytes`], [`Sample::name_bytes`], [`Module::order_table`],
+//! [`Module::restart`], [`Module::magic`], [`Sample::finetune_byte`],
+//! [`Sample::repeat_start_words`], [`Sample::repeat_length_words`] — rather
+//! than a value derived from them. Nothing here is thrown away: a decoded
+//! module's *entire* byte content survives, including bytes ProTracker
+//! itself never reads (a name's leftover bytes past its NUL, order-table
+//! padding past the song length, a finetune byte's unused upper nibble, the
+//! specific "no loop" encoding a sample used).
 //!
-//! - **The restart byte** (offset 951). The community format documentation
-//!   describes it as "historically set to 127, but can be safely ignored";
-//!   [`encode`] always writes `0`.
-//! - **The magic variant** when it isn't `M.K.` — [`encode`] always writes
-//!   `M.K.`, even if the original used `M!K!`, `FLT4`, or `4CHN`.
-//! - **Bytes trailing a name or the title past its first NUL.** Real
-//!   ProTracker files routinely leave non-zero leftover bytes in the
-//!   fixed-width name/title fields after the terminator (old buffer
-//!   content the tracker never cleared). [`decode`] trims at the first NUL
-//!   (required for `Module::title`/[`Sample::name`] to hold a clean
-//!   string); [`encode`] zero-pads instead of restoring the leftover bytes.
-//! - **Order-table bytes past the song length.** The 128-entry table often
-//!   carries non-zero padding after the entries actually played;
-//!   [`Module::orders`] holds only the used prefix, so [`encode`] zero-pads
-//!   the rest.
-//! - **A loop length of exactly one word.** The format's own "no loop"
-//!   convention is a repeat length of zero *or* one word; both decode to
-//!   [`Sample::loop_len`] `0`, so [`encode`] cannot tell which the original
-//!   file used and always writes `0`.
-//! - **A finetune byte's unused upper nibble.** Only the low nibble is
-//!   meaningful; [`decode`] discards the rest and [`encode`] always writes
-//!   it back as zero.
-//!
-//! Every other byte — every pattern cell, every sample's PCM data, every
-//! sample length/volume/loop-start, the song length, and the magic when it
-//! is `M.K.` — reproduces exactly.
+//! Reading a raw byte array is not pleasant API, so every field with a more
+//! useful shape also has an accessor: [`Module::title`] and [`Sample::name`]
+//! return the trimmed, readable `&str`; [`Module::orders`] returns the
+//! slice of the order table actually played; [`Sample::finetune`] returns
+//! the signed nibble value; [`Sample::loop_start`], [`Sample::loop_len`],
+//! and [`Sample::is_looped`] give the loop points in bytes. Read through the
+//! accessors; write through the raw fields (or leave them as `decode` set
+//! them) so nothing is lost on the way back out.
 //!
 //! # Example
 //!
@@ -93,6 +78,17 @@ pub use write::encode;
 /// extension.
 pub const MAGIC_OFFSET: usize = 1080;
 
+/// Width of [`Module::title_bytes`], in bytes.
+pub const TITLE_LEN: usize = 20;
+
+/// Width of a [`Sample::name_bytes`] field, in bytes.
+pub const SAMPLE_NAME_LEN: usize = 22;
+
+/// Width of [`Module::order_table`], in bytes — the format's fixed
+/// 128-entry order table, regardless of how many positions the song
+/// actually plays.
+pub const ORDER_TABLE_LEN: usize = 128;
+
 /// The recognised ProTracker/Noisetracker/Startrekker magics. `6CHN` and
 /// `8CHN` are recognised here (for [`is_module`]) but rejected by
 /// [`decode`] — see the crate documentation's Scope section.
@@ -112,32 +108,95 @@ pub fn is_module(bytes: &[u8]) -> bool {
             .any(|m| &bytes[MAGIC_OFFSET..MAGIC_OFFSET + 4] == *m)
 }
 
-/// One sample slot: signed 8-bit PCM plus the header fields ProTracker plays
-/// it with.
+/// Trim a fixed-width, NUL-padded byte field to the readable text before its
+/// first NUL (or its full width, if there is none), as `&str`.
 ///
-/// An unused sample slot decodes with `data` empty and every numeric field
-/// zero — a module always has exactly 31 of these, most of them unused in a
-/// typical song.
+/// Amiga sample/title text is conventionally plain ASCII, always valid
+/// UTF-8; on the rare non-UTF-8 byte this returns `""` rather than losing
+/// data or panicking — the raw bytes (`name_bytes`/`title_bytes`) are always
+/// available for exact round-tripping regardless of what this returns.
+fn trimmed_str(bytes: &[u8]) -> &str {
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    std::str::from_utf8(&bytes[..end]).unwrap_or("")
+}
+
+/// One sample slot: signed 8-bit PCM plus the header fields ProTracker plays
+/// it with, stored exactly as the file holds them.
+///
+/// An unused sample slot decodes with `data` empty and every field zero — a
+/// module always has exactly 31 of these, most of them unused in a typical
+/// song.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sample {
-    /// The sample's name (up to 22 bytes in the file), trimmed at the first
-    /// NUL.
-    pub name: String,
+    /// The sample's 22-byte name field, exactly as stored — including any
+    /// bytes after a NUL terminator (real files routinely leave old buffer
+    /// content there). Use [`name`](Sample::name) for the readable form.
+    pub name_bytes: [u8; SAMPLE_NAME_LEN],
     /// Signed 8-bit PCM sample data.
     pub data: Vec<i8>,
     /// Playback volume, 0..=64 in genuine ProTracker files (the header field
     /// is a full byte, so this crate does not clamp it).
     pub volume: u8,
-    /// Finetune, -8..=7 (a signed nibble; a hostile header's upper nibble is
-    /// discarded rather than preserved — see [`encode`]'s documentation).
-    pub finetune: i8,
-    /// Loop start, in bytes from the start of `data`.
-    pub loop_start: usize,
-    /// Loop length, in bytes. `0` means the sample does not loop — the
-    /// header's own convention for "no loop" (a repeat length of one word or
-    /// less) collapses onto this same value, so the original raw repeat
-    /// length is not recoverable once decoded.
-    pub loop_len: usize,
+    /// The raw finetune byte, exactly as stored. Only the low nibble is
+    /// meaningful to ProTracker (a signed nibble, -8..=7) — use
+    /// [`finetune`](Sample::finetune) for that value — but the upper nibble
+    /// is preserved here even though the format never uses it.
+    pub finetune_byte: u8,
+    /// Loop start, in words from the start of the sample, exactly as
+    /// stored.
+    pub repeat_start_words: u16,
+    /// Loop length, in words, exactly as stored. The format's own
+    /// convention for "no loop" is a repeat length of `0` *or* `1`; both
+    /// are preserved here rather than collapsed to one value, so encoding
+    /// reproduces whichever the file actually used. Use
+    /// [`is_looped`](Sample::is_looped)/[`loop_len`](Sample::loop_len) for
+    /// the played meaning.
+    pub repeat_length_words: u16,
+}
+
+impl Sample {
+    /// The sample's name, trimmed at its first NUL. See [`trimmed_str`] for
+    /// what happens on non-UTF-8 bytes (rare, and never loses data — the
+    /// raw [`name_bytes`](Sample::name_bytes) round-trip regardless).
+    #[must_use]
+    pub fn name(&self) -> &str {
+        trimmed_str(&self.name_bytes)
+    }
+
+    /// The finetune value ProTracker plays with: a signed nibble, -8..=7,
+    /// taken from the low 4 bits of [`finetune_byte`](Sample::finetune_byte).
+    #[must_use]
+    pub fn finetune(&self) -> i8 {
+        let raw = self.finetune_byte & 0x0F;
+        if raw >= 8 {
+            (raw as i8) - 16
+        } else {
+            raw as i8
+        }
+    }
+
+    /// Loop start, in bytes from the start of [`data`](Sample::data).
+    #[must_use]
+    pub fn loop_start(&self) -> usize {
+        usize::from(self.repeat_start_words) * 2
+    }
+
+    /// Whether the sample loops: a repeat length greater than one word.
+    #[must_use]
+    pub fn is_looped(&self) -> bool {
+        self.repeat_length_words > 1
+    }
+
+    /// Loop length in bytes, or `0` if [`is_looped`](Sample::is_looped) is
+    /// `false`.
+    #[must_use]
+    pub fn loop_len(&self) -> usize {
+        if self.is_looped() {
+            usize::from(self.repeat_length_words) * 2
+        } else {
+            0
+        }
+    }
 }
 
 /// One 4-byte pattern cell: which sample retriggers (if any), the period to
@@ -163,22 +222,58 @@ pub struct Note {
 }
 
 /// A parsed ProTracker MOD module: title, 31 sample slots, the order table,
-/// and the pattern data it references.
+/// and the pattern data it references — stored exactly as the file holds
+/// them, so `encode(decode(bytes)) == bytes` for every 4-channel module.
 ///
 /// `patterns[p]` is a stored pattern (64 rows of 4 channels each);
-/// `orders[i]` is the pattern index played at song position `i`. `decode`
-/// stores exactly `max(orders) + 1` patterns, matching how many the file
+/// `orders()[i]` is the pattern index played at song position `i`. `decode`
+/// stores exactly `max(orders()) + 1` patterns, matching how many the file
 /// physically contains; `encode` writes exactly `patterns.len()` of them
 /// back, whatever that is for a hand-built `Module`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
-    /// The module title (up to 20 bytes in the file), trimmed at the first
-    /// NUL.
-    pub title: String,
+    /// The module's 20-byte title field, exactly as stored — including any
+    /// bytes after a NUL terminator. Use [`title`](Module::title) for the
+    /// readable form.
+    pub title_bytes: [u8; TITLE_LEN],
     /// Always 31 entries — every sample slot the format has, used or not.
     pub samples: Vec<Sample>,
-    /// The song's order table: which pattern index plays at each position.
-    pub orders: Vec<u8>,
+    /// How many of [`order_table`](Module::order_table)'s 128 entries the
+    /// song actually plays. Legal values are 1..=128 in a genuine file;
+    /// carried separately from the table itself so the unplayed remainder
+    /// (which real files often leave as non-zero leftover bytes) is never
+    /// implied to be unused padding.
+    pub song_length: u8,
+    /// The full 128-entry order table, exactly as stored. Use
+    /// [`orders`](Module::orders) for the played prefix.
+    pub order_table: [u8; ORDER_TABLE_LEN],
+    /// The restart byte (offset 951 in the file). The community format
+    /// documentation describes it as "historically set to 127, but can be
+    /// safely ignored" — ProTracker itself does not read it, but it is
+    /// preserved here so encoding reproduces it exactly.
+    pub restart: u8,
+    /// The 4-byte format magic, exactly as stored (`M.K.`, `M!K!`, `FLT4`,
+    /// or `4CHN` — [`decode`] rejects `6CHN`/`8CHN`, see the crate
+    /// documentation's Scope section).
+    pub magic: [u8; 4],
     /// The stored patterns, each 64 rows of 4 [`Note`]s.
     pub patterns: Vec<Vec<[Note; 4]>>,
+}
+
+impl Module {
+    /// The module title, trimmed at its first NUL. See [`trimmed_str`] for
+    /// what happens on non-UTF-8 bytes.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        trimmed_str(&self.title_bytes)
+    }
+
+    /// The order table's played prefix: `order_table[..song_length]`,
+    /// clamped to the table's length so this never panics even on a
+    /// hand-built `Module` with an out-of-range `song_length`.
+    #[must_use]
+    pub fn orders(&self) -> &[u8] {
+        let len = (self.song_length as usize).min(self.order_table.len());
+        &self.order_table[..len]
+    }
 }
