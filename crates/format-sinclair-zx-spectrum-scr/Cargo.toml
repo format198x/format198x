@@ -1,0 +1,17 @@
+# The ZX Spectrum screen format — 6,144 bytes of bitmap in the ULA's
+# thirds/pixel-row/character-row order, followed by 768 attribute bytes.
+# Graduated from build198x's format::scr once Play198x became a second
+# consumer (../../decisions/module-and-crate-naming.md).
+[package]
+name = "format-sinclair-zx-spectrum-scr"
+description = "ZX Spectrum SCR screen dumps — decode and encode the 6912-byte display file, including the ULA's interleaved bitmap order."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["zx-spectrum", "sinclair", "scr", "screen", "retro"]
+categories = ["encoding", "multimedia::images"]
+
+[lints]
+workspace = true
