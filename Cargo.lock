@@ -5,3 +5,7 @@ version = 4
 [[package]]
 name = "format-commodore-amiga-adf"
 version = "0.2.1"
+
+[[package]]
+name = "format-sinclair-zx-spectrum-scr"
+version = "0.1.0"
