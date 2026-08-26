@@ -201,3 +201,24 @@ fn a_garbage_tail_is_kept_out_of_the_pattern_count() {
         "a module with a tail must still round-trip byte-for-byte"
     );
 }
+
+#[test]
+fn latin1_text_survives_instead_of_vanishing() {
+    // Amiga text is ISO-8859-1, and MOD titles and sample names carry
+    // accented letters and box-drawing bytes routinely. Decoding them as
+    // UTF-8 threw the whole string away on one high byte, which reaches a
+    // metadata panel as a blank title.
+    let mut bytes = synthetic_module();
+    bytes[5] = 0xE9; // 'é' in ISO-8859-1, an invalid UTF-8 byte on its own
+    let start = sample_header_offset(0);
+    bytes[start + 6] = 0xFC; // 'ü'
+
+    let m = decode(&bytes).expect("decodes");
+    assert_eq!(m.title(), "SYNTHé");
+    assert_eq!(m.samples[0].name(), "squareü");
+    assert_eq!(
+        encode(&m).expect("re-encodes"),
+        bytes,
+        "the raw bytes still round-trip"
+    );
+}

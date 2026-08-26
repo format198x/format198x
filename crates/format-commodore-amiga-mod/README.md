@@ -93,7 +93,10 @@ variant).
 
 Raw byte arrays aren't pleasant to work with directly, so every field with
 a more useful shape also has an accessor: `title()`/`name()` return the
-trimmed, readable `&str`; `orders()` returns the order table's played
+trimmed, readable text — decoded as ISO-8859-1, which is what Amiga text
+is, so an accented title or a box-drawing character in a sample name comes
+back intact rather than as an empty string; `orders()` returns the order
+table's played
 prefix; `finetune()` returns the signed nibble value; `loop_start()`,
 `loop_len()`, and `is_looped()` give the loop points in bytes. Read through
 the accessors; write through the raw fields (or leave them as `decode` set

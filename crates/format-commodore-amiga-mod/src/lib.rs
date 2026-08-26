@@ -83,7 +83,8 @@
 //!
 //! Reading a raw byte array is not pleasant API, so every field with a more
 //! useful shape also has an accessor: [`Module::title`] and [`Sample::name`]
-//! return the trimmed, readable `&str`; [`Module::orders`] returns the
+//! return the trimmed, readable text (decoded as ISO-8859-1, which is what
+//! Amiga text is — not UTF-8); [`Module::orders`] returns the
 //! slice of the order table actually played; [`Sample::finetune`] returns
 //! the signed nibble value; [`Sample::loop_start`], [`Sample::loop_len`],
 //! and [`Sample::is_looped`] give the loop points in bytes. Read through the
@@ -144,15 +145,22 @@ pub fn is_module(bytes: &[u8]) -> bool {
 }
 
 /// Trim a fixed-width, NUL-padded byte field to the readable text before its
-/// first NUL (or its full width, if there is none), as `&str`.
+/// first NUL (or its full width, if there is none), decoded as ISO-8859-1.
 ///
-/// Amiga sample/title text is conventionally plain ASCII, always valid
-/// UTF-8; on the rare non-UTF-8 byte this returns `""` rather than losing
-/// data or panicking — the raw bytes (`name_bytes`/`title_bytes`) are always
-/// available for exact round-tripping regardless of what this returns.
-fn trimmed_str(bytes: &[u8]) -> &str {
+/// Amiga text is Latin-1, not UTF-8, and MOD titles and sample names carry
+/// accented letters and box-drawing bytes routinely — sample names are
+/// where content authors traditionally hid messages, so they are the least
+/// ASCII part of the file. Decoding them as UTF-8 threw the whole string
+/// away on a single high byte, which shows up in a metadata panel as an
+/// empty title. Latin-1 maps each byte to the code point of the same value,
+/// so this is identical to UTF-8 decoding for pure ASCII and never empty
+/// for non-empty input.
+///
+/// The raw bytes (`name_bytes`/`title_bytes`) remain the round-tripping
+/// form regardless of what this returns.
+fn trimmed_string(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    std::str::from_utf8(&bytes[..end]).unwrap_or("")
+    bytes[..end].iter().map(|&b| b as char).collect()
 }
 
 /// One sample slot: signed 8-bit PCM plus the header fields ProTracker plays
@@ -190,12 +198,12 @@ pub struct Sample {
 }
 
 impl Sample {
-    /// The sample's name, trimmed at its first NUL. See [`trimmed_str`] for
-    /// what happens on non-UTF-8 bytes (rare, and never loses data — the
-    /// raw [`name_bytes`](Sample::name_bytes) round-trip regardless).
+    /// The sample's name, trimmed at its first NUL and decoded as ISO-8859-1
+    /// — which is what Amiga text is. Never loses data: the raw
+    /// [`name_bytes`](Sample::name_bytes) round-trip regardless.
     #[must_use]
-    pub fn name(&self) -> &str {
-        trimmed_str(&self.name_bytes)
+    pub fn name(&self) -> String {
+        trimmed_string(&self.name_bytes)
     }
 
     /// The finetune value ProTracker plays with: a signed nibble, -8..=7,
@@ -305,11 +313,12 @@ pub struct Module {
 }
 
 impl Module {
-    /// The module title, trimmed at its first NUL. See [`trimmed_str`] for
-    /// what happens on non-UTF-8 bytes.
+    /// The module title, trimmed at its first NUL and decoded as ISO-8859-1
+    /// — which is what Amiga text is. Never loses data: the raw
+    /// [`title_bytes`](Module::title_bytes) round-trip regardless.
     #[must_use]
-    pub fn title(&self) -> &str {
-        trimmed_str(&self.title_bytes)
+    pub fn title(&self) -> String {
+        trimmed_string(&self.title_bytes)
     }
 
     /// The order table's played prefix: `order_table[..song_length]`,
