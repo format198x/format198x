@@ -245,7 +245,7 @@ pub fn decode(bytes: &[u8]) -> Result<Ilbm, DecodeError> {
                         value: (size / 3) as u32,
                     });
                 }
-                palette = data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+                palette = data.as_chunks::<3>().0.to_vec();
             }
             b"CAMG" => {
                 if size < 4 {

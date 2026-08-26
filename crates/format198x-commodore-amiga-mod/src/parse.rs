@@ -58,7 +58,7 @@ struct SampleHeader {
 /// zero padding by any parser. Such a block is read as a pattern, which is
 /// what the size rule alone did before this check existed.
 fn looks_like_pattern_data(block: &[u8]) -> bool {
-    block.chunks_exact(4).all(|cell| {
+    block.as_chunks::<4>().0.iter().all(|cell| {
         let sample = (cell[0] & 0xF0) | (cell[2] >> 4);
         let period = (u16::from(cell[0] & 0x0F) << 8) | u16::from(cell[1]);
         sample <= 31 && (period == 0 || (27..=1712).contains(&period))
