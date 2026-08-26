@@ -9,11 +9,14 @@
 //! values this module computes rather than copies are the ones the header
 //! doesn't store directly: each sample's length in words (from
 //! `data.len()`) and the pattern bytes (from `patterns`).
+//!
+//! The 31-sample and 64-row invariants are carried by [`Module`]'s types
+//! rather than checked here — an authoring tool that gets them wrong no
+//! longer compiles.
 
 use crate::Module;
 use crate::error::EncodeError;
 
-const NUM_SAMPLES: usize = 31;
 const ROWS_PER_PATTERN: usize = 64;
 const CHANNELS: usize = 4;
 
@@ -21,27 +24,12 @@ const CHANNELS: usize = 4;
 ///
 /// # Errors
 ///
-/// [`EncodeError::WrongSampleCount`] unless `module.samples.len() == 31`.
-/// [`EncodeError::WrongPatternRows`] if a pattern is not exactly 64 rows.
 /// [`EncodeError::SampleDataInvalid`] if a sample's data length is odd or
 /// too large for the header's 16-bit word field. [`EncodeError::NoteOutOfRange`]
 /// if a note's period exceeds 12 bits or its effect exceeds 4 bits.
 /// [`EncodeError::PatternDataTooLarge`] if the pattern count overflows while
 /// computing the pattern data size.
 pub fn encode(module: &Module) -> Result<Vec<u8>, EncodeError> {
-    if module.samples.len() != NUM_SAMPLES {
-        return Err(EncodeError::WrongSampleCount {
-            found: module.samples.len(),
-        });
-    }
-    for (p, pattern) in module.patterns.iter().enumerate() {
-        if pattern.len() != ROWS_PER_PATTERN {
-            return Err(EncodeError::WrongPatternRows {
-                pattern: p,
-                found: pattern.len(),
-            });
-        }
-    }
     let pattern_data_len = module
         .patterns
         .len()

@@ -119,9 +119,12 @@ order byte that pushes the implied pattern count past what the file actually
 holds, or a sample length that overruns the file, all become a typed
 `DecodeError` rather than an out-of-bounds index or an arithmetic overflow
 panic. `encode` takes a well-typed `Module` rather than raw bytes, but still
-rejects a shape the format cannot hold (the wrong sample count, a pattern
-that isn't 64 rows, a note field too wide for its nibble) with a typed
-`EncodeError` rather than silently truncating it.
+rejects a shape the format cannot hold (a note field too wide for its
+nibble, a sample length the header cannot express) with a typed
+`EncodeError` rather than silently truncating it. The invariants a type can
+carry are carried by the type: `samples` is `[Sample; 31]` and a pattern is
+`[[Note; 4]; 64]`, so an authoring tool that gets either wrong fails to
+compile rather than at run time.
 
 ## Playback semantics, and why they're not here
 

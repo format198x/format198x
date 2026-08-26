@@ -69,28 +69,24 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
     let mut title_bytes = [0u8; TITLE_LEN];
     title_bytes.copy_from_slice(&bytes[0..TITLE_LEN]);
 
-    let mut headers = Vec::with_capacity(NUM_SAMPLES);
-    for i in 0..NUM_SAMPLES {
+    // Every one of these 31 headers sits inside the fixed 1084-byte header
+    // whose presence was checked above, so reading them cannot fail.
+    let headers: [SampleHeader; NUM_SAMPLES] = core::array::from_fn(|i| {
         let start = HEADERS_OFFSET + i * SAMPLE_HEADER_LEN;
         let hdr = &bytes[start..start + SAMPLE_HEADER_LEN];
 
         let mut name_bytes = [0u8; SAMPLE_NAME_LEN];
         name_bytes.copy_from_slice(&hdr[0..SAMPLE_NAME_LEN]);
-        let length_words = u16::from_be_bytes([hdr[22], hdr[23]]);
-        let finetune_byte = hdr[24];
-        let volume = hdr[25];
-        let repeat_start_words = u16::from_be_bytes([hdr[26], hdr[27]]);
-        let repeat_length_words = u16::from_be_bytes([hdr[28], hdr[29]]);
 
-        headers.push(SampleHeader {
+        SampleHeader {
             name_bytes,
-            data_len: usize::from(length_words) * 2,
-            volume,
-            finetune_byte,
-            repeat_start_words,
-            repeat_length_words,
-        });
-    }
+            data_len: usize::from(u16::from_be_bytes([hdr[22], hdr[23]])) * 2,
+            volume: hdr[25],
+            finetune_byte: hdr[24],
+            repeat_start_words: u16::from_be_bytes([hdr[26], hdr[27]]),
+            repeat_length_words: u16::from_be_bytes([hdr[28], hdr[29]]),
+        }
+    });
 
     let song_length = bytes[SONG_LENGTH_OFFSET];
     let restart = bytes[RESTART_OFFSET];
@@ -167,34 +163,36 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
     let pattern_count = (available_for_patterns / PATTERN_LEN).min(table_max);
     let patterns_end = patterns_offset + pattern_count * PATTERN_LEN;
 
+    // `patterns_end` is bounded by the file length above, so every cell
+    // index below is inside the input.
     let mut patterns = Vec::with_capacity(pattern_count);
     for p in 0..pattern_count {
         let pattern_start = patterns_offset + p * PATTERN_LEN;
-        let mut rows = Vec::with_capacity(ROWS_PER_PATTERN);
-        for r in 0..ROWS_PER_PATTERN {
+        let pattern: [[Note; CHANNELS]; ROWS_PER_PATTERN] = core::array::from_fn(|r| {
             let row_start = pattern_start + r * CHANNELS * 4;
-            let mut notes = [Note::default(); CHANNELS];
-            for (c, note) in notes.iter_mut().enumerate() {
+            core::array::from_fn(|c| {
                 let cell = row_start + c * 4;
                 let b0 = bytes[cell];
                 let b1 = bytes[cell + 1];
                 let b2 = bytes[cell + 2];
                 let b3 = bytes[cell + 3];
-                *note = Note {
+                Note {
                     sample: (b0 & 0xF0) | (b2 >> 4),
                     period: (u16::from(b0 & 0x0F) << 8) | u16::from(b1),
                     effect: b2 & 0x0F,
                     param: b3,
-                };
-            }
-            rows.push(notes);
-        }
-        patterns.push(rows);
+                }
+            })
+        });
+        patterns.push(pattern);
     }
 
+    // Resolve where each sample's PCM lives before building any of them,
+    // so a length that overruns the file is a typed error rather than a
+    // half-built array.
+    let mut ranges = [(0usize, 0usize); NUM_SAMPLES];
     let mut cursor = patterns_end;
-    let mut samples = Vec::with_capacity(NUM_SAMPLES);
-    for header in headers {
+    for (range, header) in ranges.iter_mut().zip(headers.iter()) {
         let end = cursor
             .checked_add(header.data_len)
             .ok_or(DecodeError::Corrupt {
@@ -205,17 +203,20 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
                 what: "sample data",
             });
         }
-        let data: Vec<i8> = bytes[cursor..end].iter().map(|&b| b as i8).collect();
+        *range = (cursor, end);
         cursor = end;
-        samples.push(Sample {
-            name_bytes: header.name_bytes,
-            data,
-            volume: header.volume,
-            finetune_byte: header.finetune_byte,
-            repeat_start_words: header.repeat_start_words,
-            repeat_length_words: header.repeat_length_words,
-        });
     }
+    let samples: [Sample; NUM_SAMPLES] = core::array::from_fn(|i| {
+        let (start, end) = ranges[i];
+        Sample {
+            name_bytes: headers[i].name_bytes,
+            data: bytes[start..end].iter().map(|&b| b as i8).collect(),
+            volume: headers[i].volume,
+            finetune_byte: headers[i].finetune_byte,
+            repeat_start_words: headers[i].repeat_start_words,
+            repeat_length_words: headers[i].repeat_length_words,
+        }
+    });
 
     let trailing = bytes[cursor..].to_vec();
 

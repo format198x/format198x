@@ -7,9 +7,12 @@
 //! violation returns one of [`DecodeError`]'s variants instead of indexing
 //! past a slice or panicking on a bad length. [`encode`](crate::encode)
 //! takes a well-typed [`Module`](crate::Module) rather than raw bytes, but
-//! still rejects a shape the file format cannot represent (the wrong sample
-//! count, a pattern that isn't 64 rows, a note field too wide for its
-//! nibble) with [`EncodeError`] rather than silently truncating it.
+//! still rejects a shape the file format cannot represent (a note field too
+//! wide for its nibble, a sample length the header cannot hold) with
+//! [`EncodeError`] rather than silently truncating it. The invariants a
+//! type can carry — exactly 31 samples, exactly 64 rows per pattern — are
+//! carried by [`Module`](crate::Module)'s own types instead, so they cannot
+//! reach `encode` at all.
 
 /// Why a byte stream failed to decode as a ProTracker module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,21 +79,11 @@ impl std::error::Error for DecodeError {}
 /// (see the crate documentation's Losslessness section), so there is
 /// nothing to validate for them — they write back unconditionally. Only
 /// values `encode` still has to *compute* (a sample's length in words from
-/// `data.len()`, the pattern byte count) can fail.
+/// `data.len()`, the pattern byte count) can fail. The sample count and
+/// pattern row count are fixed by [`Module`](crate::Module)'s types, so
+/// they are not represented here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncodeError {
-    /// A ProTracker module always has exactly 31 sample slots.
-    WrongSampleCount {
-        /// How many samples the module actually had.
-        found: usize,
-    },
-    /// Every pattern is exactly 64 rows.
-    WrongPatternRows {
-        /// The offending pattern's index.
-        pattern: usize,
-        /// How many rows it actually had.
-        found: usize,
-    },
     /// A sample's data could not be represented: its length is odd (sample
     /// lengths are stored in 16-bit words) or too long for the 16-bit word
     /// count the header field holds.
@@ -116,12 +109,6 @@ pub enum EncodeError {
 impl core::fmt::Display for EncodeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::WrongSampleCount { found } => {
-                write!(f, "a MOD module needs exactly 31 samples, found {found}")
-            }
-            Self::WrongPatternRows { pattern, found } => {
-                write!(f, "pattern {pattern} has {found} rows, expected exactly 64")
-            }
             Self::SampleDataInvalid { index } => write!(
                 f,
                 "sample {index}'s data length cannot be represented as a 16-bit word count"

@@ -171,8 +171,8 @@ fn trimmed_string(bytes: &[u8]) -> String {
 /// it with, stored exactly as the file holds them.
 ///
 /// An unused sample slot decodes with `data` empty and every field zero — a
-/// module always has exactly 31 of these, most of them unused in a typical
-/// song.
+/// module always has exactly 31 of these ([`Module::samples`] is an array,
+/// not a `Vec`), most of them unused in a typical song.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sample {
     /// The sample's 22-byte name field, exactly as stored — including any
@@ -286,8 +286,9 @@ pub struct Module {
     /// bytes after a NUL terminator. Use [`title`](Module::title) for the
     /// readable form.
     pub title_bytes: [u8; TITLE_LEN],
-    /// Always 31 entries — every sample slot the format has, used or not.
-    pub samples: Vec<Sample>,
+    /// Every sample slot the format has, used or not — always exactly 31,
+    /// which is why this is an array rather than a `Vec`.
+    pub samples: [Sample; 31],
     /// How many of [`order_table`](Module::order_table)'s 128 entries the
     /// song actually plays. Legal values are 1..=128 in a genuine file;
     /// carried separately from the table itself so the unplayed remainder
@@ -306,8 +307,9 @@ pub struct Module {
     /// or `4CHN` — [`decode`] rejects `6CHN`/`8CHN`/`FLT8`, see the crate
     /// documentation's Scope section).
     pub magic: [u8; 4],
-    /// The stored patterns, each 64 rows of 4 [`Note`]s.
-    pub patterns: Vec<Vec<[Note; 4]>>,
+    /// The stored patterns, each exactly 64 rows of 4 [`Note`]s — a fixed
+    /// shape in the format, so a fixed shape in the type.
+    pub patterns: Vec<[[Note; 4]; 64]>,
     /// Bytes sitting after the last sample's PCM data, kept verbatim so a
     /// re-encode is byte-identical. Empty for a file that ends exactly where
     /// its sample data does, which is most of them; non-empty for a module
