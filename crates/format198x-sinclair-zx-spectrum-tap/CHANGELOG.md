@@ -12,3 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > numbering continues unbroken across the rename.
 
 ## [Unreleased]
+
+## [0.1.0](https://github.com/format198x/format198x/releases/tag/format198x-sinclair-zx-spectrum-tap-v0.1.0) - 2026-08-26
+
+### Other
+
+- name every crate for the org that publishes it
