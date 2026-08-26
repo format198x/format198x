@@ -1,0 +1,18 @@
+[package]
+name = "format-commodore-amiga-mod"
+description = "ProTracker MOD modules — parse and write the Amiga tracker format: 31 samples, pattern data, and the order table."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["amiga", "protracker", "mod", "tracker", "music"]
+categories = ["encoding", "multimedia::audio", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Path-only: used by the ignored real-media test to extract genuine modules
+# from an ADF disk image. Never a runtime dependency of the library.
+format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf" }
