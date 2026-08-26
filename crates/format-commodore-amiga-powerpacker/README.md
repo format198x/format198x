@@ -37,6 +37,10 @@ if is_powerpacked(&bytes) {
   header field and bitstream read is range-checked against the input it
   actually has, and a violation returns [`DecodeError`] rather than
   indexing past a slice.
+- **The declared length is the memory ceiling.** A PP20 trailer holds the
+  decrunched length in 3 bytes, so a 12-byte input can legitimately ask for
+  a 16 MB buffer, allocated before any of the body is read. Callers working
+  to a tighter budget should check that field themselves before calling.
 - **Algorithm provenance.** Ported from libxmp's `ppDecrunch`
   (`src/depackers/ppdepack.c`), the implementation most tracker players have
   shipped for two decades. Its header records the lineage: based on code by

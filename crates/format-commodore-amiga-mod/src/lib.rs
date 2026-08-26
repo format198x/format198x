@@ -24,6 +24,14 @@
 //! trackers on other platforms (Startrekker, etc.) reused the same byte
 //! layout under other extensions.
 //!
+//! Identification by magic is also what puts the format's own ancestor out
+//! of scope: the 15-sample Soundtracker modules that came before ProTracker
+//! carry no magic at all. Their header is 600 bytes and the pattern data
+//! starts straight after it, so there is nothing at offset 1080 to
+//! recognise and no way to tell one from an arbitrary file without
+//! heuristics. [`is_module`] does not claim them and [`decode`] does not
+//! read them.
+//!
 //! # Scope
 //!
 //! Only 4-channel modules (`M.K.`, `M!K!`, `FLT4`, `4CHN`) decode:

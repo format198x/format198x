@@ -50,6 +50,16 @@
 //! land past the end of the output all return [`DecodeError::Corrupt`] or
 //! [`DecodeError::Truncated`] rather than reading out of bounds.
 //!
+//! # Memory: the input does not bound the output
+//!
+//! A PP20 stream declares its decrunched length in a 3-byte trailer field,
+//! so a 12-byte input can legitimately ask for a 16 MB output buffer, and
+//! [`decrunch`] allocates it before reading a single bit of the body. That
+//! is the format's own ceiling, not a bug — but a caller working to a
+//! tighter budget should read the declared length itself (the top 3 bytes
+//! of the last 4) and decline before calling, rather than expect
+//! [`decrunch`] to refuse on its behalf.
+//!
 //! # Example
 //!
 //! ```
@@ -76,8 +86,11 @@ pub const MIN_LEN: usize = 12;
 const MAX_BITS_PER_READ: u32 = 32;
 
 /// The largest value an offset-length table byte may hold. Genuine PP20
-/// files use 9–13; this mirrors the range check libxmp's loader applies
-/// (each byte's high nibble must be zero) rather than inventing a new bound.
+/// files use 9–13. The upper bound mirrors the range check libxmp's loader
+/// applies (each byte's high nibble must be zero) rather than inventing a
+/// new one; rejecting a width of zero as well is this crate's own addition,
+/// because a zero-width offset read is meaningless and the reference
+/// decruncher does not guard against it.
 const MAX_OFFSET_BITS: u8 = 15;
 
 /// Whether `bytes` looks like a PowerPacker (PP20) stream: long enough to
@@ -99,6 +112,12 @@ pub fn is_powerpacked(bytes: &[u8]) -> bool {
 /// the backward bitstream runs out of source bytes before decompression
 /// finishes. [`DecodeError::Corrupt`] when a header field or back-reference
 /// is out of range for the format — never a panic, even on hostile input.
+///
+/// # Allocation
+///
+/// The output buffer is allocated up front at the length the stream's
+/// trailer declares, which a 12-byte input can legitimately set as high as
+/// 16 MB. See the crate documentation's memory section.
 pub fn decrunch(bytes: &[u8]) -> Result<Vec<u8>, DecodeError> {
     if bytes.len() < MIN_LEN {
         return Err(DecodeError::Truncated {
