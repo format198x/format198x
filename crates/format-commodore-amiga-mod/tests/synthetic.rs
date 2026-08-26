@@ -167,3 +167,37 @@ fn eight_channel_magic_is_unsupported() {
         Err(DecodeError::UnsupportedChannelCount { magic: *b"8CHN" })
     );
 }
+
+#[test]
+fn a_module_with_no_tail_has_no_trailing_bytes() {
+    let m = decode(&synthetic_module()).expect("decodes");
+    assert!(
+        m.trailing.is_empty(),
+        "a file that ends where its sample data ends has nothing trailing"
+    );
+}
+
+#[test]
+fn a_garbage_tail_is_kept_out_of_the_pattern_count() {
+    // A module ripped out of an executable or padded to a block boundary
+    // carries surplus bytes after its last sample. The file-size rule alone
+    // reads a 1024-byte tail as a second pattern and then takes sample 0's
+    // PCM from the junk — a misparse that is self-consistent, so a
+    // round-trip assertion alone can never catch it.
+    let mut bytes = synthetic_module();
+    let original_sample: Vec<i8> = decode(&bytes).expect("decodes").samples[0].data.clone();
+    bytes.extend(std::iter::repeat_n(0xAAu8, 1024));
+
+    let m = decode(&bytes).expect("decodes");
+    assert_eq!(m.patterns.len(), 1, "the tail is not a second pattern");
+    assert_eq!(m.trailing, vec![0xAAu8; 1024], "the tail is kept verbatim");
+    assert_eq!(
+        m.samples[0].data, original_sample,
+        "sample PCM must still come from the sample region, not the tail"
+    );
+    assert_eq!(
+        encode(&m).expect("re-encodes"),
+        bytes,
+        "a module with a tail must still round-trip byte-for-byte"
+    );
+}

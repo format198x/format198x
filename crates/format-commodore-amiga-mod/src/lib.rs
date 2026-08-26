@@ -58,6 +58,15 @@
 //! [`encode`] writes back exactly `patterns.len()` patterns, so hidden
 //! pattern data round-trips like everything else.
 //!
+//! The size rule assumes nothing follows the last sample, which is not true
+//! of every file: a module ripped out of an executable, padded to a block
+//! boundary, or stored inside a larger container carries surplus bytes at
+//! the end, and reading those as extra patterns shifts every sample's PCM
+//! into the junk. The order table caps the count as a cross-check — no file
+//! stores a pattern no order-table entry can name — and any surplus beyond
+//! that cap is kept verbatim in [`Module::trailing`], so the module still
+//! re-encodes byte-identically.
+//!
 //! # Losslessness: raw fields plus ergonomic accessors
 //!
 //! An editor (Studio198x's tracker) that opens a module, changes one note,
@@ -287,6 +296,12 @@ pub struct Module {
     pub magic: [u8; 4],
     /// The stored patterns, each 64 rows of 4 [`Note`]s.
     pub patterns: Vec<Vec<[Note; 4]>>,
+    /// Bytes sitting after the last sample's PCM data, kept verbatim so a
+    /// re-encode is byte-identical. Empty for a file that ends exactly where
+    /// its sample data does, which is most of them; non-empty for a module
+    /// ripped out of an executable, padded to a block boundary, or stored
+    /// inside a larger container. [`encode`] appends these unchanged.
+    pub trailing: Vec<u8>,
 }
 
 impl Module {

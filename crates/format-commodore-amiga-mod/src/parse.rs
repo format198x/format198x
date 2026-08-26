@@ -138,8 +138,30 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
             what: "pattern data is not a whole number of 1024-byte patterns",
         });
     }
-    let pattern_count = available_for_patterns / PATTERN_LEN;
-    let patterns_end = patterns_offset + available_for_patterns;
+
+    // The size rule alone assumes the file is exactly header + patterns +
+    // samples, with nothing after the last sample. Real modules break that
+    // assumption often: ones ripped out of an executable, padded to a block
+    // boundary, or stored inside a larger container all carry surplus bytes
+    // at the end. The size rule reads that surplus as extra patterns, which
+    // shifts every sample's PCM forward into the junk — and because the
+    // misparse is self-consistent, `encode(decode(x)) == x` still holds and
+    // no round-trip test can catch it.
+    //
+    // The order table gives a free upper bound to cross-check against: no
+    // file stores a pattern that nothing in the 128-entry table can even
+    // name, so the largest index in the table plus one caps the count. When
+    // the size rule wants more patterns than that, the surplus is not
+    // pattern data; clamp the count and keep the surplus verbatim in
+    // `Module::trailing` so a re-encode is still byte-identical.
+    //
+    // The reverse case — the size rule wanting fewer patterns than the
+    // table's largest index implies — is the hidden-pattern/garbage-tail
+    // situation above, where the table over-counts and the size rule is
+    // right. Taking the smaller of the two handles both.
+    let table_max = usize::from(order_table.iter().copied().max().unwrap_or(0)) + 1;
+    let pattern_count = (available_for_patterns / PATTERN_LEN).min(table_max);
+    let patterns_end = patterns_offset + pattern_count * PATTERN_LEN;
 
     let mut patterns = Vec::with_capacity(pattern_count);
     for p in 0..pattern_count {
@@ -191,6 +213,8 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
         });
     }
 
+    let trailing = bytes[cursor..].to_vec();
+
     Ok(Module {
         title_bytes,
         samples,
@@ -199,5 +223,6 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
         restart,
         magic,
         patterns,
+        trailing,
     })
 }

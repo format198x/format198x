@@ -68,6 +68,15 @@ hidden-pattern files and the garbage-tail files. `encode` always writes
 back exactly `patterns.len()` patterns, so this data round-trips like
 everything else.
 
+That arithmetic assumes nothing follows the last sample, which some files
+break — modules ripped out of an executable, padded to a block boundary, or
+stored inside a larger container all carry surplus bytes at the end, and
+reading those as extra patterns silently shifts every sample's PCM into the
+junk. The order table caps the count as a cross-check (no file stores a
+pattern no order-table entry can name), and any surplus beyond that cap is
+kept verbatim in `Module::trailing`, so the module still re-encodes
+byte-identically.
+
 ## Lossless: raw fields plus ergonomic accessors
 
 An editor (Studio198x's tracker, the reason this matters) that opens a
