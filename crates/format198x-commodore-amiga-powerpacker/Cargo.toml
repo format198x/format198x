@@ -1,0 +1,24 @@
+# Amiga PowerPacker (PP20) decrunching. New crate — decode-only, no
+# compressor is wanted (../../decisions/module-and-crate-naming.md covers the
+# family's split rationale for sibling format crates). Written because a
+# media player that cannot decrunch cannot read real Amiga media: of the
+# first four modules found on a real Gathering '92 music disk, three were
+# PP20-crunched.
+[package]
+name = "format198x-commodore-amiga-powerpacker"
+description = "Amiga PowerPacker (PP20) decrunching — read crunched files, including the packed modules common on Amiga music disks."
+version = "0.1.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["amiga", "powerpacker", "pp20", "decompression", "retro"]
+categories = ["compression", "encoding"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Path-only: used by the ignored real-media test to extract a genuine PP20
+# file from an ADF disk image. Never a runtime dependency of the library.
+format198x-commodore-amiga-adf = { path = "../format198x-commodore-amiga-adf" }

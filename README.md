@@ -12,21 +12,24 @@ not just the 198x projects.
 
 | Crate | Format | crates.io |
 |-------|--------|-----------|
-| [`format-commodore-amiga-adf`](crates/format-commodore-amiga-adf) | Amiga ADF floppy images (OFS/FFS) — read, write, verify | [![crates.io](https://img.shields.io/crates/v/format-commodore-amiga-adf.svg)](https://crates.io/crates/format-commodore-amiga-adf) |
-| [`format-commodore-amiga-ilbm`](crates/format-commodore-amiga-ilbm) | Amiga IFF/ILBM images — interleaved bitplanes, ByteRun1, CAMG flags | [![crates.io](https://img.shields.io/crates/v/format-commodore-amiga-ilbm.svg)](https://crates.io/crates/format-commodore-amiga-ilbm) |
-| [`format-commodore-amiga-mod`](crates/format-commodore-amiga-mod) | ProTracker MOD modules — 31 samples, patterns, order table | [![crates.io](https://img.shields.io/crates/v/format-commodore-amiga-mod.svg)](https://crates.io/crates/format-commodore-amiga-mod) |
-| [`format-commodore-amiga-powerpacker`](crates/format-commodore-amiga-powerpacker) | Amiga PowerPacker (PP20) crunched files — decrunch | [![crates.io](https://img.shields.io/crates/v/format-commodore-amiga-powerpacker.svg)](https://crates.io/crates/format-commodore-amiga-powerpacker) |
-| [`format-commodore-c64-koala`](crates/format-commodore-c64-koala) | C64 Koala Painter multicolour bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format-commodore-c64-koala.svg)](https://crates.io/crates/format-commodore-c64-koala) |
-| [`format-commodore-c64-art-studio`](crates/format-commodore-c64-art-studio) | C64 OCP Art Studio hires bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format-commodore-c64-art-studio.svg)](https://crates.io/crates/format-commodore-c64-art-studio) |
-| [`format-sinclair-zx-spectrum-scr`](crates/format-sinclair-zx-spectrum-scr) | ZX Spectrum SCR screen dumps — read, write | [![crates.io](https://img.shields.io/crates/v/format-sinclair-zx-spectrum-scr.svg)](https://crates.io/crates/format-sinclair-zx-spectrum-scr) |
+| [`format198x-commodore-amiga-adf`](crates/format198x-commodore-amiga-adf) | Amiga ADF floppy images (OFS/FFS) — read, write, verify | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-adf.svg)](https://crates.io/crates/format198x-commodore-amiga-adf) |
+| [`format198x-commodore-amiga-ilbm`](crates/format198x-commodore-amiga-ilbm) | Amiga IFF/ILBM images — interleaved bitplanes, ByteRun1, CAMG flags | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-ilbm.svg)](https://crates.io/crates/format198x-commodore-amiga-ilbm) |
+| [`format198x-commodore-amiga-mod`](crates/format198x-commodore-amiga-mod) | ProTracker MOD modules — 31 samples, patterns, order table | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-mod.svg)](https://crates.io/crates/format198x-commodore-amiga-mod) |
+| [`format198x-commodore-amiga-powerpacker`](crates/format198x-commodore-amiga-powerpacker) | Amiga PowerPacker (PP20) crunched files — decrunch | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-powerpacker.svg)](https://crates.io/crates/format198x-commodore-amiga-powerpacker) |
+| [`format198x-commodore-c64-koala`](crates/format198x-commodore-c64-koala) | C64 Koala Painter multicolour bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-koala.svg)](https://crates.io/crates/format198x-commodore-c64-koala) |
+| [`format198x-commodore-c64-art-studio`](crates/format198x-commodore-c64-art-studio) | C64 OCP Art Studio hires bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-art-studio.svg)](https://crates.io/crates/format198x-commodore-c64-art-studio) |
+| [`format198x-sinclair-zx-spectrum-scr`](crates/format198x-sinclair-zx-spectrum-scr) | ZX Spectrum SCR screen dumps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-scr.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-scr) |
+| [`format198x-sinclair-zx-spectrum-tap`](crates/format198x-sinclair-zx-spectrum-tap) | ZX Spectrum TAP tape images — read, write, block parity | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-tap.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-tap) |
 
-More formats (C64 D64, Spectrum TAP, and others) graduate here from their
+More formats (C64 D64, Amstrad DSK, and others) graduate here from their
 originating projects as they earn a standalone consumer.
 
 ## Conventions
 
-- **System-namespaced names** — `format-{manufacturer}-{system}-{format}`,
-  because retro extensions collide across machines (ADF, DSK, TAP).
+- **Org-prefixed, system-namespaced names** — `format198x-{manufacturer}-{system}-{format}`.
+  The `format198x-` prefix says which org publishes the crate, because a registry
+  entry has no folder to sit in; the rest is system-namespaced because retro
+  extensions collide across machines (ADF, DSK, TAP).
 - **Dependency-free** — `core`/`std` only; pure byte-layout code.
 - **Deterministic** — the same inputs always produce identical bytes.
 - **Panic-free reads** — malformed input yields a typed error, never a panic.
