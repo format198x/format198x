@@ -282,6 +282,10 @@ impl Sample {
     /// The sample's PCM data as signed 8-bit values — the interpretation a
     /// mixer plays, taken byte-for-byte from [`data`](Sample::data) with no
     /// allocation.
+    // No `#[must_use]`, unlike every other accessor here: `impl Iterator`
+    // already carries it, and adding a second is a `clippy::double_must_use`
+    // error under this workspace's `-D warnings`. Confirmed still the case
+    // on rustc 1.95.
     pub fn data_i8(&self) -> impl Iterator<Item = i8> + '_ {
         self.data.iter().map(|&b| b as i8)
     }

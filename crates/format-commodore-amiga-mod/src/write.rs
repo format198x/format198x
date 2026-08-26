@@ -5,7 +5,8 @@
 //! stored — the restart byte, the magic variant, the full order table, the
 //! raw name/title bytes, the raw finetune byte, the raw loop words — so
 //! `encode(decode(bytes)) == bytes` for every 4-channel module (verified
-//! against 17 real Amiga music-disk modules; see the task report). The only
+//! against 45 real Amiga music-disk modules across two independent corpora;
+//! see the task report). The only
 //! values this module computes rather than copies are the ones the header
 //! doesn't store directly: each sample's length in words (from
 //! `data.len()`) and the pattern bytes (from `patterns`).
