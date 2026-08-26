@@ -134,8 +134,12 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
             what: "pattern and sample data",
         })?;
     if !available_for_patterns.is_multiple_of(PATTERN_LEN) {
+        // Name the ambiguity rather than the pattern region: the leftover
+        // could as easily be a truncated final sample as a bad pattern
+        // count, and a player logging this should not be pointed at the
+        // wrong part of the file.
         return Err(DecodeError::Corrupt {
-            what: "pattern data is not a whole number of 1024-byte patterns",
+            what: "the file size does not divide into whole patterns plus the declared sample data — the file is truncated or has trailing bytes",
         });
     }
 
