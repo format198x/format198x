@@ -126,11 +126,22 @@ pub const SAMPLE_NAME_LEN: usize = 22;
 /// actually plays.
 pub const ORDER_TABLE_LEN: usize = 128;
 
+/// Sample slots in every module, used or not — the length of
+/// [`Module::samples`].
+pub const NUM_SAMPLES: usize = 31;
+
+/// Rows in every pattern, fixed by the format.
+pub const ROWS_PER_PATTERN: usize = 64;
+
+/// Channels in a pattern row. This crate handles 4-channel modules only —
+/// see the crate documentation's Scope section.
+pub const CHANNELS: usize = 4;
+
 /// The recognised ProTracker/Noisetracker/Startrekker magics. `6CHN`,
 /// `8CHN` and `FLT8` are recognised here (for [`is_module`]) but rejected
 /// by [`decode`] — see the crate documentation's Scope section. `FLT8` is
 /// Startrekker's 8-channel magic, the counterpart to its 4-channel `FLT4`.
-pub(crate) const MAGICS: [&[u8; 4]; 7] = [
+pub const MAGICS: [&[u8; 4]; 7] = [
     b"M.K.", b"M!K!", b"FLT4", b"4CHN", b"6CHN", b"8CHN", b"FLT8",
 ];
 
@@ -288,7 +299,7 @@ pub struct Module {
     pub title_bytes: [u8; TITLE_LEN],
     /// Every sample slot the format has, used or not — always exactly 31,
     /// which is why this is an array rather than a `Vec`.
-    pub samples: [Sample; 31],
+    pub samples: [Sample; NUM_SAMPLES],
     /// How many of [`order_table`](Module::order_table)'s 128 entries the
     /// song actually plays. Legal values are 1..=128 in a genuine file;
     /// carried separately from the table itself so the unplayed remainder
@@ -309,7 +320,7 @@ pub struct Module {
     pub magic: [u8; 4],
     /// The stored patterns, each exactly 64 rows of 4 [`Note`]s — a fixed
     /// shape in the format, so a fixed shape in the type.
-    pub patterns: Vec<[[Note; 4]; 64]>,
+    pub patterns: Vec<[[Note; CHANNELS]; ROWS_PER_PATTERN]>,
     /// Bytes sitting after the last sample's PCM data, kept verbatim so a
     /// re-encode is byte-identical. Empty for a file that ends exactly where
     /// its sample data does, which is most of them; non-empty for a module
@@ -325,6 +336,24 @@ impl Module {
     #[must_use]
     pub fn title(&self) -> String {
         trimmed_string(&self.title_bytes)
+    }
+
+    /// The channel count this module's magic names: 4 for `M.K.`, `M!K!`,
+    /// `FLT4` and `4CHN`, 6 for `6CHN`, 8 for `8CHN` and Startrekker's
+    /// `FLT8`. Anything unrecognised reports [`CHANNELS`], the only row
+    /// shape this crate can represent.
+    ///
+    /// [`decode`] only ever produces 4-channel modules (see the crate
+    /// documentation's Scope section), so this is 4 for anything decoded;
+    /// it is here so a player reading metadata does not have to parse the
+    /// magic itself, and so a hand-built module still reports honestly.
+    #[must_use]
+    pub fn channels(&self) -> u8 {
+        match &self.magic {
+            b"6CHN" => 6,
+            b"8CHN" | b"FLT8" => 8,
+            _ => CHANNELS as u8,
+        }
     }
 
     /// The order table's played prefix: `order_table[..song_length]`,

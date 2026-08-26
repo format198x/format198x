@@ -14,29 +14,55 @@
 //! rather than checked here — an authoring tool that gets them wrong no
 //! longer compiles.
 
-use crate::Module;
 use crate::error::EncodeError;
+use crate::{CHANNELS, MAGIC_OFFSET, MAGICS, Module, ORDER_TABLE_LEN, ROWS_PER_PATTERN};
 
-const ROWS_PER_PATTERN: usize = 64;
-const CHANNELS: usize = 4;
+/// The fixed header every module starts with: title, 31 sample headers,
+/// song length, restart byte, order table and magic.
+const HEADER_LEN: usize = MAGIC_OFFSET + 4; // 1084
 
 /// Encode a [`Module`] as ProTracker MOD bytes.
 ///
 /// # Errors
 ///
+/// [`EncodeError::UnsupportedMagic`] if the magic is not one this crate can
+/// write back (unrecognised, or a wider-than-4-channel variant).
+/// [`EncodeError::SongLengthOutOfRange`] if the song length is past the
+/// 128-entry order table.
 /// [`EncodeError::SampleDataInvalid`] if a sample's data length is odd or
 /// too large for the header's 16-bit word field. [`EncodeError::NoteOutOfRange`]
 /// if a note's period exceeds 12 bits or its effect exceeds 4 bits.
 /// [`EncodeError::PatternDataTooLarge`] if the pattern count overflows while
 /// computing the pattern data size.
 pub fn encode(module: &Module) -> Result<Vec<u8>, EncodeError> {
+    // `encode` rejects what `decode` rejects. Without this a hand-built
+    // module with an 8-channel magic or a song length past the order table
+    // encoded happily and then failed this crate's own `decode` — bytes
+    // produced here are meant to be readable back.
+    if !MAGICS.iter().any(|m| **m == module.magic) || usize::from(module.channels()) != CHANNELS {
+        return Err(EncodeError::UnsupportedMagic {
+            magic: module.magic,
+        });
+    }
+    if usize::from(module.song_length) > ORDER_TABLE_LEN {
+        return Err(EncodeError::SongLengthOutOfRange {
+            found: module.song_length,
+        });
+    }
+
     let pattern_data_len = module
         .patterns
         .len()
         .checked_mul(ROWS_PER_PATTERN * CHANNELS * 4)
         .ok_or(EncodeError::PatternDataTooLarge)?;
 
-    let mut out = Vec::with_capacity(pattern_data_len);
+    // Size the buffer for everything that goes into it, not just the
+    // patterns: the fixed header and the sample PCM are most of a real
+    // module, so omitting them made every encode reallocate.
+    let total_sample_bytes: usize = module.samples.iter().map(|s| s.data.len()).sum();
+    let mut out = Vec::with_capacity(
+        HEADER_LEN + pattern_data_len + total_sample_bytes + module.trailing.len(),
+    );
 
     out.extend_from_slice(&module.title_bytes);
 

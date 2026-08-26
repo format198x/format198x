@@ -1,7 +1,7 @@
 //! Parse and round-trip tests against a module built in code rather than
 //! shipped as a file — no media may enter the repository.
 
-use format_commodore_amiga_mod::{DecodeError, decode, encode, is_module};
+use format_commodore_amiga_mod::{DecodeError, EncodeError, decode, encode, is_module};
 
 /// One looped square-wave sample, one pattern, a C-2 on channel 0 at row 0.
 fn synthetic_module() -> Vec<u8> {
@@ -236,4 +236,52 @@ fn latin1_text_survives_instead_of_vanishing() {
         bytes,
         "the raw bytes still round-trip"
     );
+}
+
+#[test]
+fn encode_rejects_what_decode_rejects() {
+    // A hand-built module could carry a magic or a song length `decode`
+    // refuses. `encode` used to write those out happily, producing bytes
+    // that failed this crate's own `decode`.
+    let good = decode(&synthetic_module()).expect("decodes");
+
+    let mut wide = good.clone();
+    wide.magic = *b"8CHN";
+    assert_eq!(
+        encode(&wide),
+        Err(EncodeError::UnsupportedMagic { magic: *b"8CHN" })
+    );
+
+    let mut unknown = good.clone();
+    unknown.magic = *b"XXXX";
+    assert_eq!(
+        encode(&unknown),
+        Err(EncodeError::UnsupportedMagic { magic: *b"XXXX" })
+    );
+
+    let mut long_song = good.clone();
+    long_song.song_length = 200;
+    assert_eq!(
+        encode(&long_song),
+        Err(EncodeError::SongLengthOutOfRange { found: 200 })
+    );
+
+    // The boundary stays legal: 128 is the whole order table, which decode
+    // accepts.
+    let mut full_song = good;
+    full_song.song_length = 128;
+    let bytes = encode(&full_song).expect("128 positions is the whole table");
+    assert!(decode(&bytes).is_ok(), "encode's output must decode again");
+}
+
+#[test]
+fn channel_count_comes_from_the_magic() {
+    let m = decode(&synthetic_module()).expect("decodes");
+    assert_eq!(m.channels(), 4);
+
+    let mut wide = m;
+    wide.magic = *b"FLT8";
+    assert_eq!(wide.channels(), 8, "Startrekker's FLT8 is 8-channel");
+    wide.magic = *b"6CHN";
+    assert_eq!(wide.channels(), 6);
 }

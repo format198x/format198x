@@ -84,6 +84,22 @@ impl std::error::Error for DecodeError {}
 /// they are not represented here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncodeError {
+    /// The module's magic is not one this crate can write: either not a
+    /// recognised ProTracker magic at all, or one of the wider-than-4-channel
+    /// variants (`6CHN`, `8CHN`, `FLT8`) whose pattern rows
+    /// [`Module`](crate::Module) cannot hold. `encode` rejects exactly what
+    /// [`decode`](crate::decode) rejects, so bytes it produces can always be
+    /// read back.
+    UnsupportedMagic {
+        /// The magic bytes the module carried.
+        magic: [u8; 4],
+    },
+    /// The song length is past the end of the 128-entry order table, which
+    /// [`decode`](crate::decode) rejects as [`DecodeError::Corrupt`].
+    SongLengthOutOfRange {
+        /// The song length the module carried.
+        found: u8,
+    },
     /// A sample's data could not be represented: its length is odd (sample
     /// lengths are stored in 16-bit words) or too long for the 16-bit word
     /// count the header field holds.
@@ -109,6 +125,14 @@ pub enum EncodeError {
 impl core::fmt::Display for EncodeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::UnsupportedMagic { magic } => write!(
+                f,
+                "cannot encode magic {:?}: not a 4-channel ProTracker module",
+                String::from_utf8_lossy(magic)
+            ),
+            Self::SongLengthOutOfRange { found } => {
+                write!(f, "song length {found} is past the 128-entry order table")
+            }
             Self::SampleDataInvalid { index } => write!(
                 f,
                 "sample {index}'s data length cannot be represented as a 16-bit word count"

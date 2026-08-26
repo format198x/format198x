@@ -13,17 +13,15 @@
 
 use crate::error::DecodeError;
 use crate::{
-    MAGIC_OFFSET, MAGICS, Module, Note, ORDER_TABLE_LEN, SAMPLE_NAME_LEN, Sample, TITLE_LEN,
+    CHANNELS, MAGIC_OFFSET, MAGICS, Module, NUM_SAMPLES, Note, ORDER_TABLE_LEN, ROWS_PER_PATTERN,
+    SAMPLE_NAME_LEN, Sample, TITLE_LEN,
 };
 
-const NUM_SAMPLES: usize = 31;
 const SAMPLE_HEADER_LEN: usize = 30;
 const HEADERS_OFFSET: usize = TITLE_LEN;
 const SONG_LENGTH_OFFSET: usize = HEADERS_OFFSET + NUM_SAMPLES * SAMPLE_HEADER_LEN; // 950
 const RESTART_OFFSET: usize = SONG_LENGTH_OFFSET + 1; // 951
 const ORDERS_OFFSET: usize = RESTART_OFFSET + 1; // 952
-const ROWS_PER_PATTERN: usize = 64;
-const CHANNELS: usize = 4;
 const PATTERN_LEN: usize = ROWS_PER_PATTERN * CHANNELS * 4; // 1024
 
 /// One sample header's raw fields, ahead of knowing where its data lives in
