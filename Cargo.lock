@@ -12,11 +12,11 @@ version = "0.1.1"
 
 [[package]]
 name = "format-commodore-amiga-mod"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "format-commodore-amiga-powerpacker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "format-commodore-amiga-adf",
 ]
