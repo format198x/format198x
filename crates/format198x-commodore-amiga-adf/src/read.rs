@@ -64,11 +64,50 @@ pub struct Disk<'a> {
     fs: FileSystem,
 }
 
+/// Identify a non-ADF disk-image container by its leading bytes.
+///
+/// Deliberately small: these are the containers an Amiga disk actually arrives
+/// in, and naming one wrongly would be worse than not naming it. Anything
+/// unrecognised falls through to the size check, which is the right answer for
+/// a truncated or padded ADF. Short inputs simply match nothing — `starts_with`
+/// on a slice shorter than the magic is `false`, never a panic.
+fn identify_container(img: &[u8]) -> Option<(&'static str, &'static str)> {
+    const CANDIDATES: &[(&[u8], &str, &str)] = &[
+        (
+            b"CAPS",
+            "IPF",
+            "a flux-level image from the Software Preservation Society",
+        ),
+        (
+            b"UAE-1ADF",
+            "extended ADF",
+            "UAE's variable-length-track ADF",
+        ),
+        (b"DMS!", "DMS", "a Disk Masher System archive"),
+        (b"PK\x03\x04", "zip", "a zip archive — extract it first"),
+        (b"\x1f\x8b", "gzip", "a gzip stream, most likely an .adz"),
+    ];
+    CANDIDATES
+        .iter()
+        .find(|(magic, _, _)| img.starts_with(magic))
+        .map(|(_, format, detail)| (*format, *detail))
+}
+
 impl<'a> Disk<'a> {
     /// Open and validate an ADF image: it must be an 880 KB DD floppy with a
     /// recognised `DOS` boot signature and a root block. Cheap — the deep
     /// checksum pass is [`verify`](Disk::verify).
+    ///
+    /// A file in another disk-image container — IPF, DMS, a zip, a gzipped
+    /// `.adz` — is named as what it is
+    /// ([`Error::UnsupportedContainer`]) rather than measured, because a size
+    /// complaint about a format the file never was sends the reader to check a
+    /// disk image that is not at fault.
     pub fn open(img: &'a [u8]) -> Result<Self, Error> {
+        // Ask what the file is before complaining about how big it is.
+        if let Some((format, detail)) = identify_container(img) {
+            return Err(Error::UnsupportedContainer { format, detail });
+        }
         if img.len() != BLOCKS as usize * BSIZE {
             return Err(Error::Corrupt {
                 what: "image size (not an 880K DD floppy)",

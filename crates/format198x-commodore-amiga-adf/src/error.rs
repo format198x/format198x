@@ -42,6 +42,18 @@ pub enum Error {
         /// The path that did not resolve.
         path: String,
     },
+    /// The image is a disk image in a container this crate does not read
+    /// ([`Disk::open`](crate::Disk::open)). Named rather than measured: an IPF
+    /// or a `.adz` told its *size* is wrong sends the reader hunting a
+    /// truncated ADF that never existed.
+    UnsupportedContainer {
+        /// Short name of the format the leading bytes identify — e.g.
+        /// `"IPF"`, `"gzip"`.
+        format: &'static str,
+        /// What it is, in a clause that finishes "…, which this crate does
+        /// not read".
+        detail: &'static str,
+    },
 }
 
 impl core::fmt::Display for Error {
@@ -57,6 +69,10 @@ impl core::fmt::Display for Error {
             Self::BadPath { path, reason } => write!(f, "bad path {path:?}: {reason}"),
             Self::Corrupt { what } => write!(f, "corrupt ADF: {what}"),
             Self::NotFound { path } => write!(f, "not found: {path:?}"),
+            Self::UnsupportedContainer { format, detail } => write!(
+                f,
+                "not an ADF: the file is {format} — {detail}, which this crate does not read"
+            ),
         }
     }
 }
