@@ -7,6 +7,7 @@
 //! below for how to run it.
 
 use format_commodore_amiga_powerpacker::{DecodeError, MAGIC, decrunch, is_powerpacked};
+use std::collections::BTreeMap;
 
 #[test]
 fn recognises_the_pp20_magic() {
@@ -133,9 +134,21 @@ fn a_match_longer_than_the_declared_output_is_corrupt() {
 /// reached the bitstream reader, the back-reference bound, or the
 /// decompression loop. It read as coverage and was worth nothing.
 ///
-/// The tallies are what keep it honest. If a later change makes the sweep
-/// bounce off an early check again, the "reached the decompression loop"
-/// assertion fails rather than the test quietly going vacuous.
+/// The tallies are what keep it honest, and they have to be specific to be
+/// worth anything. Counting `Corrupt` in bulk is not: most of this sweep's
+/// corrupts come from the offset-length table and the bit-skip range
+/// check, both of which fire in the first dozen lines of `decrunch`, so
+/// `corrupt > 0` would still hold if the sweep regressed all the way back
+/// to the header-only version above. So the tally is kept per message, and
+/// every check inside the decompression loop has to be reached by name.
+///
+/// The successes needed the same treatment. Every non-empty success used to
+/// be exactly one byte, from the most degenerate traversal the loop has —
+/// one literal, then stop — which says next to nothing about the loop.
+/// `0x0B` is in the fill set because it is a fill that drives the
+/// literal-run accumulator and the back-reference copy far enough to
+/// produce five bytes, and the test now insists some success does more
+/// than one.
 #[test]
 fn malformed_input_never_panics() {
     // Four offset-length tables: three legal (the range check allows 1..=15;
@@ -143,14 +156,25 @@ fn malformed_input_never_panics() {
     // check is still exercised without being the only thing exercised.
     const TABLES: [[u8; 4]; 4] = [[9, 10, 12, 13], [9, 9, 9, 9], [8, 10, 11, 15], [0, 9, 9, 9]];
 
+    // Every `Corrupt` message the decompression loop itself can return.
+    // Reaching each one by name is what proves the sweep exercises the
+    // loop rather than the header checks in front of it.
+    const LOOP_INTERNAL: [&str; 4] = [
+        "literal run length exceeds the declared output length",
+        "match length exceeds the declared output length",
+        "back-reference offset overruns the output buffer",
+        "decrunched output overflowed its declared length",
+    ];
+
     let mut decrunched = 0usize;
+    let mut longest_output = 0usize;
     let mut truncated = 0usize;
-    let mut corrupt = 0usize;
     let mut bad_magic = 0usize;
+    let mut corrupts: BTreeMap<&'static str, usize> = BTreeMap::new();
 
     for magic in [b"PP20", b"PP11"] {
         for table in TABLES {
-            for fill in [0x00u8, 0x0F, 0x55, 0xAA, 0xFF] {
+            for fill in [0x00u8, 0x0B, 0x0F, 0x55, 0xAA, 0xFF] {
                 for len in 12..64usize {
                     for dest_len in [0u32, 1, 2, 5, 64, 1024] {
                         for skip in [0u8, 3, 7, 33] {
@@ -172,10 +196,13 @@ fn malformed_input_never_panics() {
                                     );
                                     if !out.is_empty() {
                                         decrunched += 1;
+                                        longest_output = longest_output.max(out.len());
                                     }
                                 }
                                 Err(DecodeError::Truncated { .. }) => truncated += 1,
-                                Err(DecodeError::Corrupt { .. }) => corrupt += 1,
+                                Err(DecodeError::Corrupt { what }) => {
+                                    *corrupts.entry(what).or_default() += 1;
+                                }
                                 Err(DecodeError::BadMagic) => bad_magic += 1,
                             }
                         }
@@ -185,14 +212,29 @@ fn malformed_input_never_panics() {
         }
     }
 
+    for (what, count) in &corrupts {
+        eprintln!("{count:6} corrupt: {what}");
+    }
+    eprintln!("{decrunched} non-empty successes, longest {longest_output} bytes");
+
     // A zero declared length succeeds without entering the loop at all, so
-    // only non-empty output proves the sweep got that far.
+    // only non-empty output proves the sweep got that far — and a one-byte
+    // output proves only the shortest path through it.
     assert!(
         decrunched > 0,
         "the sweep never reached the decompression loop: no input produced non-empty output"
     );
+    assert!(
+        longest_output > 1,
+        "every success was a single byte: the sweep only takes the one-literal-then-stop path"
+    );
+    for what in LOOP_INTERNAL {
+        assert!(
+            corrupts.contains_key(what),
+            "no input reached the decompression loop's {what:?} check; the sweep is bouncing off an earlier one"
+        );
+    }
     assert!(truncated > 0, "no input exhausted the bitstream");
-    assert!(corrupt > 0, "no input tripped a range or bounds check");
     assert!(bad_magic > 0, "no input was rejected on its magic");
 }
 
