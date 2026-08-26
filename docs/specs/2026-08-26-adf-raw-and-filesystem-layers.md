@@ -4,7 +4,13 @@
 
 **Goal:** Retire Emu198x's parallel ADF crate by giving
 `format198x-commodore-amiga-adf` the raw sector layer the emulator needs,
-beneath the filesystem layer it already has — and support HD images in both.
+beneath the filesystem layer it already has — with **read, write and verify
+reachable at both layers, for both DD and HD**.
+
+Two of those six capabilities do not exist anywhere today: writing to a
+filesystem that already exists, and verifying one exhaustively rather than
+stopping at the first bad checksum. They are the bulk of the work, not the
+layering.
 
 ---
 
@@ -139,6 +145,88 @@ derived, and derived facts about on-disk layout have been wrong in this family
 before. The acceptance test is an `#[ignore]`d one that reads a real HD ADF from
 a path in an environment variable — no media in the repository.
 
+## Read, write and verify — universal across both layers and both geometries
+
+This is the acceptance bar, not a wish list. Every cell below must be reachable
+for DD **and** HD.
+
+| | Raw image | Filesystem |
+|---|---|---|
+| **Read** | `sector`, `track`, `block` | `list`, `read` — *exists* |
+| **Write** | `write_sector`, `sector_mut` | create, replace, delete, in place |
+| **Verify** | geometry and container consistency | checksums, chains, bitmap agreement |
+
+Two of those six are real gaps today, and neither is a rename away.
+
+### Writing to a disk that already exists
+
+`Volume` is a **builder**: `new`, `add_file`, `add_dir`, `build` — it produces a
+whole image from nothing. There is no way to open an ADF and change it. An
+emulator writing a save file, an authoring tool replacing one asset, or a
+learner dropping a binary onto a working disk all need the thing that does not
+exist.
+
+```rust
+pub struct DiskMut<'a> { /* ImageMut<'a> */ }
+
+impl<'a> DiskMut<'a> {
+    pub fn open(bytes: &'a mut [u8]) -> Result<Self, Error>;
+    pub fn write_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), Error>;
+    pub fn delete(&mut self, path: &str) -> Result<(), Error>;
+    pub fn create_dir(&mut self, path: &str) -> Result<(), Error>;
+    pub fn as_disk(&self) -> Disk<'_>;
+}
+```
+
+Each operation allocates or frees bitmap blocks, splices the directory hash
+chain, and recomputes every checksum it disturbed — root, header, bitmap, and
+for OFS the per-block data checksums that FFS does not carry.
+
+**`Volume::build` is then re-expressed over `DiskMut`**: blank the image, then
+apply the same writes. That is the point of doing it this way round. Today the
+builder is the only code that knows how to place a file on an Amiga disk; adding
+a mutator alongside it would make two, and they would drift. One implementation,
+two entry points.
+
+`Volume`'s public API does not change.
+
+### Verifying more than three checksums
+
+`Disk::verify` today checks the boot, root and bitmap checksums and returns at
+the first failure. That answers "is this disk obviously broken" and not "what is
+wrong with this disk".
+
+```rust
+pub struct Report { pub problems: Vec<Problem> }   // empty == sound
+
+impl<'a> Disk<'a> {
+    pub fn verify(&self) -> Result<(), Error>;   // unchanged: fast, first failure
+    pub fn check(&self) -> Report;               // exhaustive, never stops early
+}
+```
+
+`check` walks every directory hash chain and file header chain, follows each
+file's data blocks to its declared length, verifies OFS data-block checksums,
+and confirms the bitmap agrees with what is actually allocated — a disagreement
+being the classic symptom of a disk written by something that got the bitmap
+wrong. It reports **every** problem, because a tool that shows one fault per run
+is a tool you run many times.
+
+`verify`'s signature and behaviour are untouched, so no consumer changes.
+
+### Verifying a raw image
+
+At the raw layer there is nothing to checksum — an ADF is decoded sectors with
+no per-sector check data, which is exactly what distinguishes it from a flux
+image. So `Image::verify` answers the only questions the layer can: does the
+length match a geometry it knows, and is this file actually an ADF rather than
+an IPF, DMS, zip or gzip wearing the extension. That second half is the `#1192`
+guard, which becomes a verification step rather than only an `open` guard.
+
+Saying this plainly matters more than implementing it. A caller who assumes a
+clean `Image::verify` means the sectors are intact has misunderstood the format,
+and the documentation is the only place to stop them.
+
 ## What this fixes on the way
 
 - **Bounds.** Emu198x's `read_sector` indexes without checking and panics on an
@@ -159,10 +247,12 @@ a path in an environment variable — no media in the repository.
 - **Emu198x takes a crates.io dependency** where it currently has a path
   dependency. That is the normal direction of travel for this family and the
   crate is already published.
-- **`ImageMut` is new surface** with no consumer in this repo. It exists because
-  Emu198x has `write_sector` and dropping it would make this a downgrade rather
-  than a unification. Format198x crates are bidirectional by
-  `studio198x-authoring.md` clause 5.
+- **`DiskMut` is the largest piece of new work here**, and it is not a port of
+  anything — nothing in either crate mutates an existing filesystem today.
+  Bitmap allocation, hash-chain splicing and OFS data checksums are where the
+  bugs will be, which is why step 4's `check` is sequenced right behind it: an
+  exhaustive verifier is the natural test oracle for a mutator, and each makes
+  the other worth trusting.
 
 ## What this is NOT
 
@@ -181,8 +271,11 @@ a path in an environment variable — no media in the repository.
 2. HD accepted by `Image`, and by `Disk` once verified against a real HD image.
    Until then `Disk::from_image` declines HD with a typed error rather than
    guessing.
-3. Emu198x migrates its floppy peripheral and deletes its copy. Its session, its
+3. `DiskMut` lands, and `Volume::build` is re-expressed over it so there is one
+   implementation of placing a file on a disk rather than two.
+4. `Disk::check` lands beside the unchanged `verify`.
+5. Emu198x migrates its floppy peripheral and deletes its copy. Its session, its
    timing.
 
-Step 3 is not a precondition for 1 or 2. Nothing here breaks Emu198x while it
+Step 5 is not a precondition for 1-4. Nothing here breaks Emu198x while it
 carries its own crate — the two coexist exactly as they do today.
