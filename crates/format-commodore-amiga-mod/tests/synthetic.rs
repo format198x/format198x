@@ -51,6 +51,18 @@ fn parses_a_synthetic_module() {
 }
 
 #[test]
+fn data_i8_yields_the_signed_interpretation_of_the_stored_bytes() {
+    // The synthetic sample's second half is stored as the raw byte 156
+    // (above 0x7F, so its signed interpretation actually differs): as
+    // signed 8-bit PCM that is -100, not 156.
+    let m = decode(&synthetic_module()).expect("decodes");
+    let sample = &m.samples[0];
+    assert_eq!(sample.data[32], 156, "stored byte is unsigned 156");
+    let signed: Vec<i8> = sample.data_i8().collect();
+    assert_eq!(signed[32], -100, "data_i8 must reinterpret 156 as -100");
+}
+
+#[test]
 fn round_trips_byte_for_byte() {
     let original = synthetic_module();
     let decoded = decode(&original).expect("decodes");
@@ -200,7 +212,7 @@ fn a_garbage_tail_is_kept_out_of_the_pattern_count() {
     // PCM from the junk — a misparse that is self-consistent, so a
     // round-trip assertion alone can never catch it.
     let mut bytes = synthetic_module();
-    let original_sample: Vec<i8> = decode(&bytes).expect("decodes").samples[0].data.clone();
+    let original_sample: Vec<u8> = decode(&bytes).expect("decodes").samples[0].data.clone();
     bytes.extend(std::iter::repeat_n(0xAAu8, 1024));
 
     let m = decode(&bytes).expect("decodes");

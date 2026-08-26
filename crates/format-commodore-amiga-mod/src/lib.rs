@@ -198,8 +198,11 @@ pub struct Sample {
     /// bytes after a NUL terminator (real files routinely leave old buffer
     /// content there). Use [`name`](Sample::name) for the readable form.
     pub name_bytes: [u8; SAMPLE_NAME_LEN],
-    /// Signed 8-bit PCM sample data.
-    pub data: Vec<i8>,
+    /// The sample's PCM data, exactly as the file holds it. A MOD sample's
+    /// bytes are signed 8-bit PCM — the storage is raw bytes, consistent
+    /// with every other raw field on [`Module`]/[`Sample`]; use
+    /// [`data_i8`](Sample::data_i8) for the signed-PCM view a mixer wants.
+    pub data: Vec<u8>,
     /// Playback volume, 0..=64 in genuine ProTracker files (the header field
     /// is a full byte, so this crate does not clamp it).
     pub volume: u8,
@@ -262,6 +265,13 @@ impl Sample {
         } else {
             0
         }
+    }
+
+    /// The sample's PCM data as signed 8-bit values — the interpretation a
+    /// mixer plays, taken byte-for-byte from [`data`](Sample::data) with no
+    /// allocation.
+    pub fn data_i8(&self) -> impl Iterator<Item = i8> + '_ {
+        self.data.iter().map(|&b| b as i8)
     }
 }
 

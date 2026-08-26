@@ -208,7 +208,7 @@ pub fn decode(bytes: &[u8]) -> Result<Module, DecodeError> {
         let (start, end) = ranges[i];
         Sample {
             name_bytes: headers[i].name_bytes,
-            data: bytes[start..end].iter().map(|&b| b as i8).collect(),
+            data: bytes[start..end].to_vec(),
             volume: headers[i].volume,
             finetune_byte: headers[i].finetune_byte,
             repeat_start_words: headers[i].repeat_start_words,

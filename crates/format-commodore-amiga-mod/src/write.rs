@@ -105,7 +105,7 @@ pub fn encode(module: &Module) -> Result<Vec<u8>, EncodeError> {
     }
 
     for sample in &module.samples {
-        out.extend(sample.data.iter().map(|&b| b as u8));
+        out.extend_from_slice(&sample.data);
     }
 
     out.extend_from_slice(&module.trailing);
