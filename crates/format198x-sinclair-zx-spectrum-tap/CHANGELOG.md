@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-tap-v0.1.0...format198x-sinclair-zx-spectrum-tap-v0.1.1) - 2026-08-26
+
+### Other
+
+- release ([#18](https://github.com/format198x/format198x/pull/18))
+
 ## [0.1.0](https://github.com/format198x/format198x/releases/tag/format198x-sinclair-zx-spectrum-tap-v0.1.0) - 2026-08-26
 
 First release under this name. The crate's code is unchanged from the 0.1.0
