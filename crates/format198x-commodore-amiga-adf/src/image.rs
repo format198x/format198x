@@ -229,6 +229,12 @@ impl<'a> ImageMut<'a> {
     pub fn bytes(&self) -> &[u8] {
         self.bytes
     }
+
+    /// The whole image, mutable. Crate-internal: the filesystem layer writes
+    /// through it by block number, having already range-checked the block.
+    pub(crate) fn bytes_mut(&mut self) -> &mut [u8] {
+        self.bytes
+    }
 }
 
 /// Convert a CHS address to a block number, naming the coordinate that is out

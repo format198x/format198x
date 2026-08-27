@@ -12,8 +12,9 @@
 //!   blank image are all perfectly good [`Image`]s. An emulator's floppy
 //!   peripheral wants this layer and nothing above it.
 //! - **The filesystem layer.** [`Disk`] reads an OFS/FFS volume — `list`,
-//!   `read`, `verify` — and [`Volume`] writes one. This is the layer that knows
-//!   what a file is.
+//!   `read`, `verify`. [`Volume`] builds one from nothing, and [`DiskMut`]
+//!   changes one that already exists — writing, replacing and deleting files on
+//!   a working disk. This is the layer that knows what a file is.
 //!
 //! The layering is one-directional: [`Disk::open`] opens an [`Image`] and then
 //! interprets it, and [`Disk::image`] hands the raw view back. Nothing at the
@@ -78,14 +79,16 @@
 //!
 //! Pure byte-layout — `core`/`std` only, no dependencies. Internally organised
 //! as small modules — `error`, `fs`, `geometry` and `image` (the raw layer),
-//! `layout` (block constants and primitives),
-//! `write` ([`Volume`]/[`master`]), and `read` ([`Disk`]) — re-exported here.
+//! `layout` (block constants and primitives), `mutate` ([`DiskMut`], and the
+//! one implementation of placing an entry on a disk), `write`
+//! ([`Volume`]/[`master`]), and `read` ([`Disk`]) — re-exported here.
 
 mod error;
 mod fs;
 mod geometry;
 mod image;
 mod layout;
+mod mutate;
 mod read;
 mod write;
 
@@ -96,5 +99,6 @@ pub use error::Error;
 pub use fs::FileSystem;
 pub use geometry::{DD, Geometry, HD};
 pub use image::{Image, ImageMut};
+pub use mutate::DiskMut;
 pub use read::{Disk, Entry, EntryKind};
 pub use write::{Volume, master, master_fs};

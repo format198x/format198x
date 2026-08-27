@@ -1,18 +1,25 @@
 use crate::error::Error;
 use crate::fs::FileSystem;
 use crate::geometry::{DD, Geometry};
+use crate::image::ImageMut;
 use crate::layout::*;
+use crate::mutate::DiskMut;
 
 /// Insert `child` into `parent`'s hash table under `name`, chaining on a slot
 /// collision via the sibling chain (`hash_chain` at `BSIZE-16`). This makes the
 /// writer correct for *any* set of names, not only ones that happen not to
-/// collide. Does not checksum — the caller checksums headers after all inserts
-/// (an insert may set a header's `hash_chain`).
-pub(crate) fn dir_insert(img: &mut [u8], parent: u32, child: u32, name: &str) {
+/// collide.
+///
+/// Returns the block it altered — the parent when the slot was empty, or the
+/// last sibling in the chain when it was not. Does not checksum: the whole-disk
+/// builder checksums every header once at the end, and a mutator checksums the
+/// one block this names.
+pub(crate) fn dir_insert(img: &mut [u8], parent: u32, child: u32, name: &str) -> u32 {
     let slot = 24 + 4 * name_hash(name);
     let head = read_u32(block(img, parent), slot);
     if head == 0 {
         put_u32(block_mut(img, parent), slot, child);
+        parent
     } else {
         let mut cur = head;
         loop {
@@ -23,12 +30,13 @@ pub(crate) fn dir_insert(img: &mut [u8], parent: u32, child: u32, name: &str) {
             cur = next;
         }
         put_u32(block_mut(img, cur), BSIZE - 16, child);
+        cur
     }
 }
 
 /// Extension blocks a file of `data_n` data blocks needs beyond its header's 72
 /// pointer slots.
-fn ext_count(data_n: usize) -> usize {
+pub(crate) fn ext_count(data_n: usize) -> usize {
     data_n.saturating_sub(1) / HT_SIZE
 }
 
@@ -36,7 +44,7 @@ fn ext_count(data_n: usize) -> usize {
 /// header (type/key/sequence/size/next/checksum) and chains them; FFS writes
 /// raw 512-byte sectors, relying on the header/extension pointer tables for
 /// order.
-fn write_file_data(
+pub(crate) fn write_file_data(
     img: &mut [u8],
     fs: FileSystem,
     header_key: u32,
@@ -80,7 +88,7 @@ fn put_ptr_table(img: &mut [u8], blk: u32, ptrs: &[u32]) {
 /// left unchecksummed (a directory insert may set its `hash_chain`); the ext
 /// blocks, which inserts never touch, are checksummed here.
 #[allow(clippy::too_many_arguments)]
-fn write_file_header(
+pub(crate) fn write_file_header(
     img: &mut [u8],
     hdr: u32,
     ext: &[u32],
@@ -188,7 +196,7 @@ impl DirNode {
 }
 
 /// Split a slash-separated path into validated, non-empty components.
-fn split_path(path: &str) -> Result<Vec<String>, Error> {
+pub(crate) fn split_path(path: &str) -> Result<Vec<String>, Error> {
     let parts: Vec<String> = path
         .split('/')
         .filter(|s| !s.is_empty())
@@ -312,198 +320,40 @@ impl Volume {
     /// Build the deterministic `.adf` image — 901,120 bytes for the default
     /// [`DD`](crate::DD) geometry, 1,802,240 for [`HD`](crate::HD). Errors only
     /// if the tree does not fit on the disk or the volume label is invalid.
+    ///
+    /// Expressed over [`DiskMut`](crate::DiskMut): format a blank image, then
+    /// place each entry. There is one implementation of putting a file on an
+    /// Amiga disk, and both this builder and the mutator go through it, so
+    /// neither can drift from the other.
     pub fn build(&self) -> Result<Vec<u8>, Error> {
         validate_name(&self.label, "volume name")?;
-
-        let geometry = self.geometry;
-        let root_blk = geometry.root_block();
-        let bitmap_blk = geometry.bitmap_block();
-        let first_free = geometry.first_free();
-        let blocks = geometry.blocks();
-
-        // Plan: assign blocks to every directory header, file header, file
-        // extension block, and data block, in a deterministic pre-order walk.
-        let mut planned: Vec<Planned> = Vec::new();
-        let mut next = first_free;
-        plan_dir(&self.root, root_blk, self.fs, &mut next, &mut planned);
-        let used_end = next; // first_free..used_end are the file-tree blocks
-
-        if used_end > blocks {
-            return Err(Error::DiskFull {
-                needed: used_end - first_free,
-                available: blocks - first_free,
-            });
-        }
-
-        let mut img = vec![0u8; geometry.len()];
-        write_boot_block(&mut img, self.fs, self.bootable);
-
-        // Data blocks + headers (headers unchecksummed; an insert may set a
-        // header's hash_chain).
-        for p in &planned {
-            match p {
-                Planned::File {
-                    hdr,
-                    ext,
-                    data,
-                    parent,
-                    name,
-                    bytes,
-                    protect,
-                } => {
-                    write_file_data(&mut img, self.fs, *hdr, data, bytes);
-                    write_file_header(
-                        &mut img,
-                        *hdr,
-                        ext,
-                        name,
-                        *parent,
-                        data,
-                        bytes.len() as u32,
-                        *protect,
-                    );
-                }
-                Planned::Dir { hdr, parent, name } => {
-                    let b = block_mut(&mut img, *hdr);
-                    put_u32(b, 0, T_HEADER);
-                    put_u32(b, 4, *hdr); // own block
-                    put_name(b, name);
-                    put_u32(b, BSIZE - 12, *parent);
-                    put_u32(b, BSIZE - 4, ST_USERDIR);
-                }
-            }
-        }
-
-        // Root block (structure only; entries inserted below).
+        let mut img = ImageMut::blank(self.geometry);
         {
-            let b = block_mut(&mut img, root_blk);
-            put_u32(b, 0, T_HEADER);
-            put_u32(b, 12, HT_SIZE as u32); // hash-table size (root only)
-            put_u32(b, BSIZE - 200, 0xffff_ffff); // bitmap flag: valid
-            put_u32(b, BSIZE - 196, bitmap_blk); // bm_pages[0]
-            put_name(b, &self.label);
-            put_u32(b, BSIZE - 4, ST_ROOT);
+            let mut disk = DiskMut::format(&mut img, &self.label, self.fs, self.bootable)?;
+            let root = self.geometry.root_block();
+            place_tree(&mut disk, &self.root, root)?;
+            disk.reseal();
         }
-
-        // Insert every entry into its parent (in pre-order, so sibling chain
-        // order on a hash collision is deterministic), then checksum all
-        // headers — an insert can set a header's hash_chain.
-        for p in &planned {
-            let (parent, hdr, name) = p.link();
-            dir_insert(&mut img, parent, hdr, name);
-        }
-        let c = checksum(block(&img, root_blk), 20);
-        put_u32(block_mut(&mut img, root_blk), 20, c);
-        for p in &planned {
-            let (_, hdr, _) = p.link();
-            let c = checksum(block(&img, hdr), 20);
-            put_u32(block_mut(&mut img, hdr), 20, c);
-        }
-
-        // Bitmap block: 1 = free. Mark the used blocks used.
-        {
-            // One bitmap block covers both geometries: 508 bytes of bits is
-            // 4064 blocks' worth, and HD needs 3518. No extension chain.
-            let words = ((blocks - 2) as usize).div_ceil(32); // blocks 2..blocks
-            let mut map = vec![0xffff_ffffu32; words];
-            let mut mark_used = |n: u32| {
-                let i = (n - 2) as usize;
-                map[i / 32] &= !(1u32 << (i % 32));
-            };
-            mark_used(root_blk);
-            mark_used(bitmap_blk);
-            for n in first_free..used_end {
-                mark_used(n);
-            }
-            // Bits past the last real block (blocks-1) don't exist: mark used.
-            for n in blocks..(2 + words as u32 * 32) {
-                mark_used(n);
-            }
-            let b = block_mut(&mut img, bitmap_blk);
-            for (i, w) in map.iter().enumerate() {
-                put_u32(b, 4 + 4 * i, *w);
-            }
-            let c = checksum(b, 0);
-            put_u32(block_mut(&mut img, bitmap_blk), 0, c);
-        }
-
         Ok(img)
     }
 }
 
-/// A tree node with its assigned blocks, ready to write.
-enum Planned<'a> {
-    File {
-        hdr: u32,
-        ext: Vec<u32>,
-        data: Vec<u32>,
-        parent: u32,
-        name: &'a str,
-        bytes: &'a [u8],
-        protect: u32,
-    },
-    Dir {
-        hdr: u32,
-        parent: u32,
-        name: &'a str,
-    },
-}
-
-impl Planned<'_> {
-    /// The (parent, own-header, name) triple every node inserts into its parent.
-    fn link(&self) -> (u32, u32, &str) {
-        match self {
-            Planned::File {
-                parent, hdr, name, ..
-            } => (*parent, *hdr, name),
-            Planned::Dir { parent, hdr, name } => (*parent, *hdr, name),
-        }
-    }
-}
-
-/// Take `n` consecutive blocks from the allocation cursor, returning the first.
-fn take_blocks(next: &mut u32, n: u32) -> u32 {
-    let base = *next;
-    *next += n;
-    base
-}
-
-/// Assign blocks to `dir`'s subtree, pre-order, appending to `out`.
-fn plan_dir<'a>(
-    dir: &'a DirNode,
-    parent: u32,
-    fs: FileSystem,
-    next: &mut u32,
-    out: &mut Vec<Planned<'a>>,
-) {
+/// Place `dir`'s children under `parent`, depth first in insertion order.
+///
+/// The order is the contract: block numbers fall out of the order they are
+/// asked for, so walking the tree this way is what keeps a given input
+/// producing a given image, byte for byte.
+fn place_tree(disk: &mut DiskMut, dir: &DirNode, parent: u32) -> Result<(), Error> {
     for (name, child) in &dir.entries {
         match child {
             Child::File { bytes, protect } => {
-                let hdr = take_blocks(next, 1);
-                let data_n = if bytes.is_empty() {
-                    0
-                } else {
-                    bytes.len().div_ceil(fs.data_capacity())
-                };
-                let ext: Vec<u32> = (0..ext_count(data_n))
-                    .map(|_| take_blocks(next, 1))
-                    .collect();
-                let data: Vec<u32> = (0..data_n).map(|_| take_blocks(next, 1)).collect();
-                out.push(Planned::File {
-                    hdr,
-                    ext,
-                    data,
-                    parent,
-                    name,
-                    bytes,
-                    protect: *protect,
-                });
+                disk.place_file(parent, name, bytes, *protect)?;
             }
             Child::Dir(sub) => {
-                let hdr = take_blocks(next, 1);
-                out.push(Planned::Dir { hdr, parent, name });
-                plan_dir(sub, hdr, fs, next, out);
+                let hdr = disk.place_dir(parent, name)?;
+                place_tree(disk, sub, hdr)?;
             }
         }
     }
+    Ok(())
 }

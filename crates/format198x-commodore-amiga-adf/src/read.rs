@@ -255,6 +255,12 @@ impl<'a> Disk<'a> {
         (boot_checksum(&probe) != stored).then_some("boot checksum")
     }
 
+    /// The name in an entry's header block.
+    pub(crate) fn entry_name(&self, blk: u32) -> Result<String, Error> {
+        self.cblock(blk)?;
+        Ok(header_name(self.img, blk))
+    }
+
     /// Blocks on this volume's media.
     fn blocks(&self) -> u32 {
         self.geometry().blocks()
@@ -269,7 +275,7 @@ impl<'a> Disk<'a> {
     ///
     /// Stricter than [`Image::block`]: a filesystem pointer may not name the
     /// two reserved boot blocks, so the accepted range is `2..blocks`.
-    fn cblock(&self, n: u32) -> Result<&'a [u8], Error> {
+    pub(crate) fn cblock(&self, n: u32) -> Result<&'a [u8], Error> {
         if n < RESERVED {
             return Err(Error::Corrupt {
                 what: "block pointer out of range",
@@ -281,7 +287,7 @@ impl<'a> Disk<'a> {
     }
 
     /// Find `name` in directory `dir`, following the hash chain on a collision.
-    fn lookup(&self, dir: u32, name: &str) -> Result<Option<u32>, Error> {
+    pub(crate) fn lookup(&self, dir: u32, name: &str) -> Result<Option<u32>, Error> {
         let b = self.cblock(dir)?;
         let mut e = read_u32(b, 24 + 4 * name_hash(name));
         let mut guard = 0;
@@ -302,7 +308,7 @@ impl<'a> Disk<'a> {
     }
 
     /// Resolve a slash path to its header block.
-    fn resolve(&self, path: &str) -> Result<u32, Error> {
+    pub(crate) fn resolve(&self, path: &str) -> Result<u32, Error> {
         let mut blk = self.root_block();
         for comp in path.split('/').filter(|s| !s.is_empty()) {
             match self.lookup(blk, comp)? {
@@ -318,7 +324,7 @@ impl<'a> Disk<'a> {
     }
 
     /// Resolve a path that must be a directory (root or user dir).
-    fn resolve_dir(&self, path: &str) -> Result<u32, Error> {
+    pub(crate) fn resolve_dir(&self, path: &str) -> Result<u32, Error> {
         let blk = self.resolve(path)?;
         let sec = read_u32(self.cblock(blk)?, BSIZE - 4);
         if sec == ST_ROOT || sec == ST_USERDIR {
@@ -333,7 +339,7 @@ impl<'a> Disk<'a> {
 
     /// Gather a file's data blocks in order, from its header and extension
     /// chain (each block pointer range-checked, the chain loop-bounded).
-    fn data_blocks(&self, hdr: u32) -> Result<Vec<u32>, Error> {
+    pub(crate) fn data_blocks(&self, hdr: u32) -> Result<Vec<u32>, Error> {
         let mut blocks = Vec::new();
         collect_ptrs(self.img, hdr, &mut blocks);
         let mut ext = read_u32(self.cblock(hdr)?, BSIZE - 8);

@@ -14,8 +14,8 @@ them back.
 It works at **two layers**. `Image`/`ImageMut` address the raw sectors, by
 cylinder/head/sector the way a drive does or by logical block the way AmigaDOS
 does — what an emulator's floppy peripheral wants, and all a bootblock-only or
-unformatted disk has. `Disk`/`Volume` sit on top and read and write the OFS/FFS
-filesystem.
+unformatted disk has. `Disk`, `Volume` and `DiskMut` sit on top and read and
+write the OFS/FFS filesystem.
 
 ## Write a bootable disk
 
@@ -53,6 +53,26 @@ let mut bytes = adf.clone();
 let mut writable = ImageMut::open(&mut bytes)?;
 writable.write_sector(40, 1, 5, &sector_bytes)?;
 ```
+
+## Change a disk that already exists
+
+`Volume` builds an image from nothing. `DiskMut` opens one and edits it — what
+an emulator writing a save file, or a tool replacing one asset, needs.
+
+```rust
+use format198x_commodore_amiga_adf::DiskMut;
+
+let mut disk = DiskMut::open(&mut adf)?;
+disk.create_dir("saves")?;
+disk.write_file("saves/game.sav", b"level 3")?;   // creates
+disk.write_file("saves/game.sav", b"level 4")?;   // replaces, in place
+disk.delete("saves/game.sav")?;                    // frees every block it held
+println!("{} blocks free", disk.free_blocks());
+```
+
+`Volume::build` is itself expressed over `DiskMut`, so there is one
+implementation of placing a file on an Amiga disk rather than two that can
+drift.
 
 ## Read one back
 

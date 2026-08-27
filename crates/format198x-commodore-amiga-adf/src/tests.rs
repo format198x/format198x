@@ -504,7 +504,7 @@ fn an_unrecognised_file_still_gets_the_size_complaint() {
 // The raw layer: geometry, Image, ImageMut
 // ---------------------------------------------------------------------------
 
-use crate::geometry::{DD, Geometry, HD};
+use crate::geometry::{DD, Geometry, HD, RESERVED};
 use crate::image::{Image, ImageMut};
 
 /// The root-block formula reproduces the answer every 1980s AmigaDOS manual
@@ -826,23 +826,15 @@ fn hd_volumes_round_trip_through_both_layers() {
 }
 
 /// HD holds what DD cannot — the only reason to want it.
-///
-/// The figures are lower than the media's size because the block allocator
-/// walks upward from the root block and never revisits the blocks below it, so
-/// a volume can fill only the upper half of its disk. That is a pre-existing
-/// limit of the builder rather than anything to do with HD — it caps a DD
-/// floppy at about 432 KB too — and it is fixed when allocation moves onto the
-/// bitmap. Asserted here at its real value rather than the one it should be, so
-/// this test says something true.
 #[test]
 fn hd_holds_what_dd_cannot() {
-    let payload = vec![0x42u8; 600_000];
+    let payload = vec![0x42u8; 1_200_000];
 
     let mut dd = Volume::new("Small", FileSystem::Ffs);
     dd.add_file("payload", &payload).unwrap();
     assert!(
         matches!(dd.build(), Err(Error::DiskFull { .. })),
-        "600 KB does not fit what a DD volume can currently reach"
+        "1.2 MB does not fit an 880 KB floppy"
     );
 
     let mut hd = Volume::new("Big", FileSystem::Ffs);
@@ -850,6 +842,34 @@ fn hd_holds_what_dd_cannot() {
     hd.add_file("payload", &payload).unwrap();
     let img = hd.build().unwrap();
     assert_eq!(Disk::open(&img).unwrap().read("payload").unwrap(), payload);
+}
+
+/// A volume fills its disk, not half of it.
+///
+/// Allocation used to walk upward from the root block and never revisit what
+/// lay below, so a DD floppy topped out near 432 KB — under half its media —
+/// and the whole lower half sat unreachable. Now that allocation goes through
+/// the bitmap, both halves are in play.
+#[test]
+fn a_volume_fills_its_disk() {
+    for (geometry, media) in [(DD, 901_120usize), (HD, 1_802_240)] {
+        // Comfortably more than half the disk, which is what used to fail.
+        let payload = vec![0x5au8; media * 3 / 4];
+        let mut vol = Volume::new("Full", FileSystem::Ffs);
+        vol.set_geometry(geometry);
+        vol.add_file("payload", &payload).unwrap();
+        let img = vol.build().unwrap();
+
+        let disk = Disk::open(&img).unwrap();
+        assert_eq!(disk.read("payload").unwrap(), payload);
+        disk.verify().unwrap();
+
+        // Blocks below the root really are in use now.
+        let below = (RESERVED..geometry.root_block())
+            .filter(|&n| block(&img, n).iter().any(|&b| b != 0))
+            .count();
+        assert!(below > 0, "{geometry:?} still leaves its lower half empty");
+    }
 }
 
 /// HD writes stay deterministic — the contract that makes committed `.adf`
@@ -1000,4 +1020,264 @@ fn a_wrong_boot_checksum_is_still_corrupt() {
             what: "boot checksum"
         })
     ));
+}
+
+// ---------------------------------------------------------------------------
+// DiskMut: changing a disk that already exists
+// ---------------------------------------------------------------------------
+
+use crate::mutate::DiskMut;
+
+/// The gap this fills: `Volume` can only build a disk from nothing. Opening one
+/// that exists and changing it is what an emulator writing a save file, or a
+/// tool replacing one asset, actually needs.
+#[test]
+fn disk_mut_adds_to_a_disk_that_already_exists() {
+    let mut vol = Volume::new("Work", FileSystem::Ofs);
+    vol.add_file("readme", b"original\n").unwrap();
+    let mut img = vol.build().unwrap();
+
+    {
+        let mut disk = DiskMut::open(&mut img).unwrap();
+        disk.create_dir("saves/slot1").unwrap();
+        disk.write_file("saves/slot1/game.sav", b"level 3").unwrap();
+        disk.write_file("notes", b"added later\n").unwrap();
+    }
+
+    let disk = Disk::open(&img).unwrap();
+    assert_eq!(disk.read("readme").unwrap(), b"original\n", "untouched");
+    assert_eq!(disk.read("saves/slot1/game.sav").unwrap(), b"level 3");
+    assert_eq!(disk.read("notes").unwrap(), b"added later\n");
+    disk.verify().unwrap();
+
+    // The new directories are real directories, reachable by listing.
+    let saves = disk.list("saves").unwrap();
+    assert_eq!(saves.len(), 1);
+    assert_eq!(saves[0].kind, EntryKind::Directory);
+}
+
+/// Replacing a file frees what it held. Rewriting the same file many times must
+/// not leak blocks, or a save-game slot would eventually fill the disk.
+#[test]
+fn rewriting_a_file_does_not_leak_blocks() {
+    for fs in [FileSystem::Ofs, FileSystem::Ffs] {
+        let mut img = Volume::new("Save", fs).build().unwrap();
+        let mut disk = DiskMut::open(&mut img).unwrap();
+
+        disk.write_file("game.sav", &vec![0u8; 20_000]).unwrap();
+        let after_first = disk.free_blocks();
+
+        for i in 0..50u8 {
+            disk.write_file("game.sav", &vec![i; 20_000]).unwrap();
+        }
+        assert_eq!(
+            disk.free_blocks(),
+            after_first,
+            "{fs:?}: 50 rewrites of the same size must cost nothing"
+        );
+        assert_eq!(disk.as_disk().read("game.sav").unwrap(), vec![49u8; 20_000]);
+        disk.as_disk().verify().unwrap();
+    }
+}
+
+/// Deleting returns every block the entry held — data, extension chain and
+/// header — so a disk emptied and refilled behaves like a fresh one.
+#[test]
+fn deleting_returns_every_block() {
+    let mut img = Volume::new("Churn", FileSystem::Ofs).build().unwrap();
+    let mut disk = DiskMut::open(&mut img).unwrap();
+    let empty = disk.free_blocks();
+
+    // Large enough to need extension blocks, so the whole chain is exercised.
+    let big: Vec<u8> = (0..488 * 100).map(|i| (i % 251) as u8).collect();
+    disk.write_file("a/b/big", &big).unwrap();
+    assert!(disk.free_blocks() < empty);
+    assert_eq!(disk.as_disk().read("a/b/big").unwrap(), big);
+
+    disk.delete("a/b/big").unwrap();
+    disk.delete("a/b").unwrap();
+    disk.delete("a").unwrap();
+    assert_eq!(disk.free_blocks(), empty, "everything came back");
+    assert!(disk.as_disk().list("").unwrap().is_empty());
+    disk.as_disk().verify().unwrap();
+}
+
+/// A disk written, emptied and rewritten matches one written straight — the
+/// determinism contract surviving mutation, not just construction.
+#[test]
+fn a_reused_disk_matches_a_fresh_one() {
+    let mut vol = Volume::new("Same", FileSystem::Ofs);
+    vol.add_file("keep", b"keep\n").unwrap();
+    let fresh = {
+        let mut v = Volume::new("Same", FileSystem::Ofs);
+        v.add_file("keep", b"keep\n").unwrap();
+        v.add_file("later", &vec![7u8; 3000]).unwrap();
+        v.build().unwrap()
+    };
+
+    let mut img = vol.build().unwrap();
+    {
+        let mut disk = DiskMut::open(&mut img).unwrap();
+        disk.write_file("scratch", &vec![1u8; 9000]).unwrap();
+        disk.delete("scratch").unwrap();
+        disk.write_file("later", &vec![7u8; 3000]).unwrap();
+    }
+    assert_eq!(img, fresh, "a reused disk is byte-identical to a fresh one");
+}
+
+/// Refusing to delete a non-empty directory. Removing it would orphan its
+/// children, and silently leaking their blocks is worse than saying no.
+#[test]
+fn a_non_empty_directory_is_not_deleted() {
+    let mut img = Volume::new("Tree", FileSystem::Ofs).build().unwrap();
+    let mut disk = DiskMut::open(&mut img).unwrap();
+    disk.write_file("d/file", b"x").unwrap();
+
+    assert!(matches!(
+        disk.delete("d"),
+        Err(Error::BadPath {
+            reason: "directory is not empty",
+            ..
+        })
+    ));
+    assert_eq!(disk.as_disk().read("d/file").unwrap(), b"x");
+
+    disk.delete("d/file").unwrap();
+    disk.delete("d").unwrap();
+    assert!(disk.as_disk().list("").unwrap().is_empty());
+}
+
+/// Names that land in the same hash slot must survive being added and removed
+/// in any order — the sibling chain has to be mended, not just truncated.
+#[test]
+fn removing_from_the_middle_of_a_hash_chain_mends_it() {
+    // Three names sharing one of the 72 slots.
+    let mut by_slot: std::collections::HashMap<usize, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut trio = None;
+    for i in 0..20_000u32 {
+        let n = format!("f{i}");
+        let e = by_slot.entry(name_hash(&n)).or_default();
+        e.push(n);
+        if e.len() == 3 {
+            trio = Some(e.clone());
+            break;
+        }
+    }
+    let trio = trio.expect("three colliding names");
+    assert_eq!(name_hash(&trio[0]), name_hash(&trio[2]));
+
+    let mut img = Volume::new("Hash", FileSystem::Ofs).build().unwrap();
+    let mut disk = DiskMut::open(&mut img).unwrap();
+    for n in &trio {
+        disk.write_file(n, n.as_bytes()).unwrap();
+    }
+    // Remove the middle one: the chain must close over it.
+    disk.delete(&trio[1]).unwrap();
+    assert_eq!(disk.as_disk().read(&trio[0]).unwrap(), trio[0].as_bytes());
+    assert_eq!(disk.as_disk().read(&trio[2]).unwrap(), trio[2].as_bytes());
+    assert!(disk.as_disk().read(&trio[1]).is_err());
+
+    // Then the head, then the tail.
+    disk.delete(&trio[0]).unwrap();
+    assert_eq!(disk.as_disk().read(&trio[2]).unwrap(), trio[2].as_bytes());
+    disk.delete(&trio[2]).unwrap();
+    assert!(disk.as_disk().list("").unwrap().is_empty());
+    disk.as_disk().verify().unwrap();
+}
+
+/// A full disk refuses cleanly. A partly written file linked to nothing would
+/// be worse than an error, so the cost is checked before any of it is spent.
+#[test]
+fn a_full_disk_refuses_without_half_writing() {
+    let mut img = Volume::new("Full", FileSystem::Ffs).build().unwrap();
+    let mut disk = DiskMut::open(&mut img).unwrap();
+    disk.write_file("hog", &vec![0u8; 800_000]).unwrap();
+
+    let before = disk.free_blocks();
+    let err = disk.write_file("toobig", &vec![1u8; 400_000]).unwrap_err();
+    assert!(matches!(err, Error::DiskFull { .. }), "{err:?}");
+    assert_eq!(disk.free_blocks(), before, "a refusal costs nothing");
+    assert!(disk.as_disk().read("toobig").is_err());
+    disk.as_disk().verify().unwrap();
+}
+
+/// Formatting a blank image produces a mountable volume — the entry point that
+/// makes an HD disk reachable without going through `Volume`.
+#[test]
+fn format_produces_a_mountable_volume() {
+    for geometry in [DD, HD] {
+        for fs in [FileSystem::Ofs, FileSystem::Ffs] {
+            let mut bytes = ImageMut::blank(geometry);
+            {
+                let mut disk = DiskMut::format(&mut bytes, "Fresh", fs, false).unwrap();
+                assert_eq!(disk.geometry(), geometry);
+                disk.write_file("hello", b"world\n").unwrap();
+            }
+            let disk = Disk::open(&bytes).unwrap();
+            assert_eq!(disk.label(), "Fresh");
+            assert_eq!(disk.filesystem(), fs);
+            assert_eq!(disk.geometry(), geometry);
+            assert_eq!(disk.read("hello").unwrap(), b"world\n");
+            disk.verify().unwrap();
+        }
+    }
+}
+
+/// The mutator writes through to the raw layer, because they are one disk.
+#[test]
+fn mutation_is_visible_at_the_raw_layer() {
+    let mut img = Volume::new("Both", FileSystem::Ofs).build().unwrap();
+    let root = DD.root_block();
+    {
+        let mut disk = DiskMut::open(&mut img).unwrap();
+        disk.write_file("f", b"hello").unwrap();
+        // The header landed in the first free block above the root.
+        let image = disk.as_disk().image();
+        assert_eq!(read_u32(image.block(root + 2).unwrap(), 0), T_HEADER);
+    }
+    assert_eq!(read_u32(block(&img, root + 2), 0), T_HEADER);
+}
+
+/// Bad paths are refused rather than half-applied.
+#[test]
+fn disk_mut_rejects_bad_paths() {
+    let mut img = Volume::new("V", FileSystem::Ofs).build().unwrap();
+    let mut disk = DiskMut::open(&mut img).unwrap();
+    disk.write_file("a", b"1").unwrap();
+
+    assert!(matches!(
+        disk.write_file("", b"x"),
+        Err(Error::BadPath { .. })
+    ));
+    assert!(matches!(
+        disk.write_file("a/b", b"x"),
+        Err(Error::BadPath { .. })
+    )); // through a file
+    assert!(matches!(disk.create_dir("a"), Err(Error::BadPath { .. }))); // a file holds the name
+    assert!(matches!(disk.delete("nope"), Err(Error::NotFound { .. })));
+    assert!(
+        disk.write_file(&format!("{}/x", "n".repeat(31)), b"y")
+            .is_err()
+    );
+    disk.as_disk().verify().unwrap();
+}
+
+/// An HD disk takes mutation as readily as a DD one — the acceptance bar is
+/// read, write and verify at both layers on both geometries.
+#[test]
+fn hd_disks_are_mutable_too() {
+    let mut bytes = ImageMut::blank(HD);
+    {
+        let mut disk = DiskMut::format(&mut bytes, "BigWork", FileSystem::Ffs, false).unwrap();
+        let payload = vec![0x33u8; 1_000_000];
+        disk.write_file("data/payload", &payload).unwrap();
+        assert_eq!(disk.as_disk().read("data/payload").unwrap(), payload);
+        disk.delete("data/payload").unwrap();
+        disk.write_file("data/small", b"tiny").unwrap();
+    }
+    let disk = Disk::open(&bytes).unwrap();
+    assert_eq!(disk.geometry(), HD);
+    assert_eq!(disk.read("data/small").unwrap(), b"tiny");
+    disk.verify().unwrap();
 }
