@@ -70,6 +70,12 @@ impl Geometry {
         self.root_block() + 1
     }
 
+    /// The first block the file tree may use. Blocks are allocated upward from
+    /// here, which is what makes the writer's output deterministic.
+    pub(crate) const fn first_free(self) -> u32 {
+        self.root_block() + 2
+    }
+
     /// The geometry an image of `len` bytes must have, if this crate knows one
     /// that size. Only DD and HD share a length, so the mapping is
     /// unambiguous.

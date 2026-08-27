@@ -3,18 +3,10 @@ use crate::fs::FileSystem;
 
 /// Bytes per disk block (sector).
 pub(crate) const BSIZE: usize = 512;
-/// Blocks on a DD floppy: 80 cylinders × 2 heads × 11 sectors.
-pub(crate) const BLOCKS: u32 = 1760;
-/// The root block sits at the middle of a DD disk.
-pub(crate) const ROOT_BLK: u32 = 880;
-/// The bitmap block, immediately after the root.
-pub(crate) const BITMAP_BLK: u32 = 881;
 /// Hash-table / data-pointer slots per header block.
 pub(crate) const HT_SIZE: usize = 72;
 /// Payload bytes per OFS data block (512 − the 24-byte OFS data header).
 pub(crate) const OFS_DATA: usize = BSIZE - 24;
-/// File/dir/data blocks are allocated upward from here (deterministic).
-pub(crate) const FIRST_FREE: u32 = 882;
 
 /// Primary block type for headers.
 pub(crate) const T_HEADER: u32 = 2;

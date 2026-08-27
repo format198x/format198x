@@ -14,12 +14,12 @@ pub enum Error {
         /// The length supplied.
         len: usize,
     },
-    /// The content does not fit on a double-density floppy. Counts are in
-    /// 512-byte blocks.
+    /// The content does not fit on the volume's media. Counts are in 512-byte
+    /// blocks.
     DiskFull {
         /// Blocks the content requires.
         needed: u32,
-        /// Blocks a DD floppy leaves free for the file tree.
+        /// Blocks the disk leaves free for the file tree.
         available: u32,
     },
     /// A path could not be used — on the write side it is empty, already
@@ -63,16 +63,6 @@ pub enum Error {
         /// The length supplied.
         got: usize,
     },
-    /// The image is a shape this crate reads at the raw layer but whose
-    /// filesystem layout it does not claim ([`Disk::from_image`](crate::Disk::from_image)).
-    ///
-    /// Sectors, tracks and blocks are still reachable through
-    /// [`Image`](crate::Image); it is only the AmigaDOS interpretation of them
-    /// that is withheld.
-    UnsupportedGeometry {
-        /// The shape, named — e.g. `"high-density"`.
-        shape: &'static str,
-    },
     /// The image is a disk image in a container this crate does not read
     /// ([`Disk::open`](crate::Disk::open)). Named rather than measured: an IPF
     /// or a `.adz` told its *size* is wrong sends the reader hunting a
@@ -93,10 +83,9 @@ impl core::fmt::Display for Error {
             Self::InvalidName { what, len } => {
                 write!(f, "{what}: must be 1..=30 ASCII bytes (got {len})")
             }
-            Self::DiskFull { needed, available } => write!(
-                f,
-                "disk full: {needed} blocks needed, {available} free on an 880K floppy"
-            ),
+            Self::DiskFull { needed, available } => {
+                write!(f, "disk full: {needed} blocks needed, {available} free")
+            }
             Self::BadPath { path, reason } => write!(f, "bad path {path:?}: {reason}"),
             Self::Corrupt { what } => write!(f, "corrupt ADF: {what}"),
             Self::NotFound { path } => write!(f, "not found: {path:?}"),
@@ -106,10 +95,6 @@ impl core::fmt::Display for Error {
             Self::BadSectorLength { got } => {
                 write!(f, "a sector is 512 bytes (got {got})")
             }
-            Self::UnsupportedGeometry { shape } => write!(
-                f,
-                "{shape} media: this crate reads its sectors but does not read its filesystem"
-            ),
             Self::UnsupportedContainer { format, detail } => write!(
                 f,
                 "not an ADF: the file is {format} — {detail}, which this crate does not read"

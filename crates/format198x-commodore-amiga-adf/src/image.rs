@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::geometry::{DD, Geometry, HD};
+use crate::geometry::Geometry;
 use crate::layout::BSIZE;
 
 /// Identify a non-ADF disk-image container by its leading bytes.
@@ -41,17 +41,6 @@ fn geometry_of(bytes: &[u8]) -> Result<Geometry, Error> {
     Geometry::for_len(bytes.len()).ok_or(Error::Corrupt {
         what: "image size (neither a DD nor an HD floppy)",
     })
-}
-
-/// Name a geometry for an error message.
-pub(crate) fn shape_name(geometry: Geometry) -> &'static str {
-    if geometry == DD {
-        "double-density"
-    } else if geometry == HD {
-        "high-density"
-    } else {
-        "unrecognised"
-    }
 }
 
 /// A raw ADF image: decoded sectors, plus the geometry their number implies.

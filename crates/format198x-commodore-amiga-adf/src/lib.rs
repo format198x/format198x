@@ -21,7 +21,8 @@
 //!
 //! Two entry points on the write side. [`Volume`] builds an arbitrary
 //! file/directory tree onto a
-//! DD floppy image (880 KB) — `add_file`/`add_dir`, then `build`. [`master`]
+//! floppy image — DD (880 KB) by default, HD (1.76 MB) via
+//! `set_geometry` — `add_file`/`add_dir`, then `build`. [`master`]
 //! (and [`master_fs`]) is the common special case: a Kickstart-1.x hunk
 //! executable plus a `startup-sequence` that runs it, the disk an Amiga boots
 //! straight into. It is the mastering half of an Amiga-assembly build — an
@@ -40,11 +41,11 @@
 //! [`Disk`] is the read side: open an image, `list` directories, `read` files,
 //! and `verify` every checksum — panic-free on malformed input.
 //!
-//! **General within the DD-floppy shape** — any tree of files and directories,
+//! **General within the floppy shape** — any tree of files and directories,
 //! bootable or a plain data disk. It is correct for *any* input: a file of any
 //! size chains into extension blocks (not just the 72 that fit a header), names
 //! that hash to the same slot chain through the hash table, nested directories
-//! to any depth, and a tree too large for an 880 KB disk is a typed error
+//! to any depth, and a tree too large for the disk is a typed error
 //! rather than a corrupt image. The International/Dir-Cache variants, hard-disk
 //! (RDB) layouts, and multi-disk sets are the remaining generality frontier —
 //! each its own later scope.
@@ -56,7 +57,8 @@
 //! - **Boot block** (sectors 0–1): the DOS-type byte (`DOS\0` OFS / `DOS\1`
 //!   FFS) + the fixed KS1.2+ boot code + `dos.library`, with an add-with-carry
 //!   boot checksum. The bootstrap is a constant, volume-independent blob.
-//! - **Root block** (block 880): volume name, a 72-slot name-hash table of
+//! - **Root block** (block 880 on DD, 1760 on HD — see
+//!   [`Geometry::root_block`]): volume name, a 72-slot name-hash table of
 //!   top-level entries, the bitmap pointer, dates, and a block checksum.
 //! - **Bitmap block** (block 881): one bit per block (1 = free), checksum at
 //!   offset 0.

@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::fs::FileSystem;
+use crate::geometry::{DD, Geometry};
 use crate::layout::*;
 
 /// Insert `child` into `parent`'s hash table under `name`, chaining on a slot
@@ -220,6 +221,7 @@ fn split_path(path: &str) -> Result<Vec<String>, Error> {
 pub struct Volume {
     label: String,
     fs: FileSystem,
+    geometry: Geometry,
     bootable: bool,
     root: DirNode,
 }
@@ -231,6 +233,7 @@ impl Volume {
         Volume {
             label: label.to_owned(),
             fs,
+            geometry: DD,
             bootable: false,
             root: DirNode::default(),
         }
@@ -240,6 +243,17 @@ impl Volume {
     /// `s/startup-sequence`; a data disk is mountable but does not boot.
     pub fn set_bootable(&mut self, bootable: bool) -> &mut Self {
         self.bootable = bootable;
+        self
+    }
+
+    /// Choose the media this volume is written onto. Defaults to
+    /// [`DD`](crate::DD), the 880 KB floppy every Amiga can read; pass
+    /// [`HD`](crate::HD) for the 1.76 MB one an A3000/A4000 HD drive writes.
+    ///
+    /// Only the block count and the root block's position change — the volume
+    /// structure, the boot block and both filesystems are identical either way.
+    pub fn set_geometry(&mut self, geometry: Geometry) -> &mut Self {
+        self.geometry = geometry;
         self
     }
 
@@ -295,26 +309,33 @@ impl Volume {
         Ok(self)
     }
 
-    /// Build the deterministic `.adf` image (901,120 bytes). Errors only if the
-    /// tree does not fit on an 880 KB disk or the volume label is invalid.
+    /// Build the deterministic `.adf` image — 901,120 bytes for the default
+    /// [`DD`](crate::DD) geometry, 1,802,240 for [`HD`](crate::HD). Errors only
+    /// if the tree does not fit on the disk or the volume label is invalid.
     pub fn build(&self) -> Result<Vec<u8>, Error> {
         validate_name(&self.label, "volume name")?;
+
+        let geometry = self.geometry;
+        let root_blk = geometry.root_block();
+        let bitmap_blk = geometry.bitmap_block();
+        let first_free = geometry.first_free();
+        let blocks = geometry.blocks();
 
         // Plan: assign blocks to every directory header, file header, file
         // extension block, and data block, in a deterministic pre-order walk.
         let mut planned: Vec<Planned> = Vec::new();
-        let mut next = FIRST_FREE;
-        plan_dir(&self.root, ROOT_BLK, self.fs, &mut next, &mut planned);
-        let used_end = next; // FIRST_FREE..used_end are the file-tree blocks
+        let mut next = first_free;
+        plan_dir(&self.root, root_blk, self.fs, &mut next, &mut planned);
+        let used_end = next; // first_free..used_end are the file-tree blocks
 
-        if used_end > BLOCKS {
+        if used_end > blocks {
             return Err(Error::DiskFull {
-                needed: used_end - FIRST_FREE,
-                available: BLOCKS - FIRST_FREE,
+                needed: used_end - first_free,
+                available: blocks - first_free,
             });
         }
 
-        let mut img = vec![0u8; BLOCKS as usize * BSIZE];
+        let mut img = vec![0u8; geometry.len()];
         write_boot_block(&mut img, self.fs, self.bootable);
 
         // Data blocks + headers (headers unchecksummed; an insert may set a
@@ -355,11 +376,11 @@ impl Volume {
 
         // Root block (structure only; entries inserted below).
         {
-            let b = block_mut(&mut img, ROOT_BLK);
+            let b = block_mut(&mut img, root_blk);
             put_u32(b, 0, T_HEADER);
             put_u32(b, 12, HT_SIZE as u32); // hash-table size (root only)
             put_u32(b, BSIZE - 200, 0xffff_ffff); // bitmap flag: valid
-            put_u32(b, BSIZE - 196, BITMAP_BLK); // bm_pages[0]
+            put_u32(b, BSIZE - 196, bitmap_blk); // bm_pages[0]
             put_name(b, &self.label);
             put_u32(b, BSIZE - 4, ST_ROOT);
         }
@@ -371,8 +392,8 @@ impl Volume {
             let (parent, hdr, name) = p.link();
             dir_insert(&mut img, parent, hdr, name);
         }
-        let c = checksum(block(&img, ROOT_BLK), 20);
-        put_u32(block_mut(&mut img, ROOT_BLK), 20, c);
+        let c = checksum(block(&img, root_blk), 20);
+        put_u32(block_mut(&mut img, root_blk), 20, c);
         for p in &planned {
             let (_, hdr, _) = p.link();
             let c = checksum(block(&img, hdr), 20);
@@ -381,27 +402,29 @@ impl Volume {
 
         // Bitmap block: 1 = free. Mark the used blocks used.
         {
-            let words = ((BLOCKS - 2) as usize).div_ceil(32); // blocks 2..BLOCKS
+            // One bitmap block covers both geometries: 508 bytes of bits is
+            // 4064 blocks' worth, and HD needs 3518. No extension chain.
+            let words = ((blocks - 2) as usize).div_ceil(32); // blocks 2..blocks
             let mut map = vec![0xffff_ffffu32; words];
             let mut mark_used = |n: u32| {
                 let i = (n - 2) as usize;
                 map[i / 32] &= !(1u32 << (i % 32));
             };
-            mark_used(ROOT_BLK);
-            mark_used(BITMAP_BLK);
-            for n in FIRST_FREE..used_end {
+            mark_used(root_blk);
+            mark_used(bitmap_blk);
+            for n in first_free..used_end {
                 mark_used(n);
             }
-            // Bits past the last real block (BLOCKS-1) don't exist: mark used.
-            for n in BLOCKS..(2 + words as u32 * 32) {
+            // Bits past the last real block (blocks-1) don't exist: mark used.
+            for n in blocks..(2 + words as u32 * 32) {
                 mark_used(n);
             }
-            let b = block_mut(&mut img, BITMAP_BLK);
+            let b = block_mut(&mut img, bitmap_blk);
             for (i, w) in map.iter().enumerate() {
                 put_u32(b, 4 + 4 * i, *w);
             }
             let c = checksum(b, 0);
-            put_u32(block_mut(&mut img, BITMAP_BLK), 0, c);
+            put_u32(block_mut(&mut img, bitmap_blk), 0, c);
         }
 
         Ok(img)

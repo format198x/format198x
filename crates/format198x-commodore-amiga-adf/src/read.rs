@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::fs::FileSystem;
-use crate::geometry::{DD, Geometry, RESERVED};
-use crate::image::{Image, shape_name};
+use crate::geometry::{Geometry, RESERVED};
+use crate::image::Image;
 use crate::layout::*;
 
 // ---------------------------------------------------------------------------
@@ -72,9 +72,10 @@ pub struct Disk<'a> {
 }
 
 impl<'a> Disk<'a> {
-    /// Open and validate an ADF image: it must be an 880 KB DD floppy with a
-    /// recognised `DOS` boot signature and a root block. Cheap — the deep
-    /// checksum pass is [`verify`](Disk::verify).
+    /// Open and validate an ADF image: it must be a floppy of a geometry this
+    /// crate knows — [`DD`](crate::DD) or [`HD`](crate::HD) — with a recognised
+    /// `DOS` boot signature and a root block. Cheap — the deep checksum pass is
+    /// [`verify`](Disk::verify).
     ///
     /// A file in another disk-image container — IPF, DMS, a zip, a gzipped
     /// `.adz` — is named as what it is
@@ -91,11 +92,6 @@ impl<'a> Disk<'a> {
     /// size checks the `Image` has already passed.
     pub fn from_image(image: Image<'a>) -> Result<Self, Error> {
         let geometry = image.geometry();
-        if geometry != DD {
-            return Err(Error::UnsupportedGeometry {
-                shape: shape_name(geometry),
-            });
-        }
         let img = image.bytes();
         if &img[0..3] != b"DOS" {
             return Err(Error::Corrupt {

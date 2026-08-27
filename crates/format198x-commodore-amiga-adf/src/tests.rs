@@ -8,7 +8,7 @@ use crate::write::*;
 /// validating the root hash table, file header, data-pointer table, and
 /// OFS data-block chain the way a real filesystem would.
 fn read_file(img: &[u8], name: &str) -> Vec<u8> {
-    let root = &img[ROOT_BLK as usize * BSIZE..][..BSIZE];
+    let root = &img[DD.root_block() as usize * BSIZE..][..BSIZE];
     let hdr_blk = read_u32(root, 24 + 4 * name_hash(name));
     let hdr = &img[hdr_blk as usize * BSIZE..][..BSIZE];
     let size = read_u32(hdr, BSIZE - 188) as usize;
@@ -39,7 +39,7 @@ fn lookup(img: &[u8], dir: u32, name: &str) -> u32 {
 /// Resolve a slash-separated path to its header block — a miniature read
 /// side, walking directory hash tables and hash chains.
 fn resolve(img: &[u8], path: &str) -> u32 {
-    let mut blk = ROOT_BLK;
+    let mut blk = DD.root_block();
     for comp in path.split('/').filter(|s| !s.is_empty()) {
         blk = lookup(img, blk, comp);
         assert!(blk != 0, "path component {comp:?} not found");
@@ -86,10 +86,10 @@ fn assert_checksums(img: &[u8], name: &str) {
             "checksum block {blk} of {name}"
         );
     };
-    check(ROOT_BLK, 20);
-    check(BITMAP_BLK, 0);
+    check(DD.root_block(), 20);
+    check(DD.bitmap_block(), 0);
     // Walk root entries and their data.
-    let root = &img[ROOT_BLK as usize * BSIZE..][..BSIZE];
+    let root = &img[DD.root_block() as usize * BSIZE..][..BSIZE];
     for slot in 0..HT_SIZE {
         let e = read_u32(root, 24 + 4 * slot);
         if e != 0 {
@@ -102,10 +102,10 @@ fn assert_checksums(img: &[u8], name: &str) {
 fn masters_a_bootable_shape() {
     let exe = b"\x00\x00\x03\xf3 fake hunk exe payload".to_vec();
     let img = master(&exe, "game", "Game").unwrap();
-    assert_eq!(img.len(), BLOCKS as usize * BSIZE);
+    assert_eq!(img.len(), DD.blocks() as usize * BSIZE);
     assert_eq!(&img[0..4], b"DOS\0");
     assert_eq!(
-        read_u32(&img[ROOT_BLK as usize * BSIZE..], BSIZE - 4),
+        read_u32(&img[DD.root_block() as usize * BSIZE..], BSIZE - 4),
         ST_ROOT
     );
     assert_checksums(&img, "game");
@@ -167,8 +167,8 @@ fn ffs_is_deterministic_and_denser_than_ofs() {
     // 4000 bytes: OFS needs ceil(4000/488)=9 data blocks, FFS ceil(4000/512)
     // =8 — so the FFS image marks fewer blocks used. Compare bitmap free bits.
     let free = |img: &[u8]| -> u32 {
-        (0..((BLOCKS - 2) as usize).div_ceil(32))
-            .map(|i| read_u32(block(img, BITMAP_BLK), 4 + 4 * i).count_ones())
+        (0..((DD.blocks() - 2) as usize).div_ceil(32))
+            .map(|i| read_u32(block(img, DD.bitmap_block()), 4 + 4 * i).count_ones())
             .sum()
     };
     assert!(
@@ -188,7 +188,7 @@ fn round_trips_a_file_needing_extension_blocks() {
     assert_eq!(read_file(&img, "huge"), exe);
 
     // The extension chain is well-formed and self-checksummed.
-    let hdr = read_u32(block(&img, ROOT_BLK), 24 + 4 * name_hash("huge"));
+    let hdr = read_u32(block(&img, DD.root_block()), 24 + 4 * name_hash("huge"));
     let mut ext = read_u32(block(&img, hdr), BSIZE - 8);
     let mut ext_seen = 0;
     while ext != 0 {
@@ -221,8 +221,8 @@ fn dir_insert_chains_on_hash_collision() {
     let (first, second) = (first.unwrap(), second.unwrap());
     assert_eq!(name_hash(&first), name_hash(&second));
 
-    let mut img = vec![0u8; BLOCKS as usize * BSIZE];
-    let parent = ROOT_BLK;
+    let mut img = vec![0u8; DD.blocks() as usize * BSIZE];
+    let parent = DD.root_block();
     dir_insert(&mut img, parent, 100, &first);
     dir_insert(&mut img, parent, 101, &second);
     let slot = 24 + 4 * name_hash(&first);
@@ -345,7 +345,7 @@ fn volume_handles_empty_files() {
 fn rejects_disk_full_and_bad_names() {
     // Larger than an 880K disk can hold: a typed disk-full error, not a
     // panic or a corrupt image.
-    let too_big = vec![0u8; BSIZE * BLOCKS as usize];
+    let too_big = vec![0u8; BSIZE * DD.blocks() as usize];
     assert!(master(&too_big, "x", "X").is_err());
     assert!(master(b"z", "", "V").is_err());
     assert!(master(b"z", &"n".repeat(31), "V").is_err());
@@ -413,7 +413,7 @@ fn disk_rejects_garbage_and_bad_paths() {
         Disk::open(&[0u8; 100]),
         Err(Error::Corrupt { .. })
     )); // wrong size
-    let blank = vec![0u8; BLOCKS as usize * BSIZE];
+    let blank = vec![0u8; DD.blocks() as usize * BSIZE];
     assert!(matches!(Disk::open(&blank), Err(Error::Corrupt { .. }))); // no DOS sig
 
     let img = master(b"hello world payload", "g", "G").unwrap();
@@ -430,7 +430,7 @@ fn disk_verify_catches_a_flipped_byte() {
     // Flip a byte in the root block's name area: open still succeeds (type
     // and secondary-type intact) but the block checksum no longer matches.
     let mut corrupt = img.clone();
-    corrupt[ROOT_BLK as usize * BSIZE + (BSIZE - 70)] ^= 0xff;
+    corrupt[DD.root_block() as usize * BSIZE + (BSIZE - 70)] ^= 0xff;
     let disk = Disk::open(&corrupt).unwrap();
     assert!(matches!(disk.verify(), Err(Error::Corrupt { .. })));
 }
@@ -515,10 +515,9 @@ fn geometry_reproduces_the_published_dd_numbers() {
     assert_eq!(DD.blocks(), 1760);
     assert_eq!(DD.len(), 901_120);
     assert_eq!(DD.root_block(), 880, "the documented DD root block");
-    // The constants this crate has always used, now derived rather than fixed.
-    assert_eq!(DD.root_block(), ROOT_BLK);
-    assert_eq!(DD.bitmap_block(), BITMAP_BLK);
-    assert_eq!(DD.blocks(), BLOCKS);
+    // The values this crate used to hardcode, now derived rather than fixed.
+    assert_eq!(DD.bitmap_block(), 881);
+    assert_eq!(DD.first_free(), 882);
 }
 
 /// HD is twice the sectors per track and nothing else: same cylinders, same
@@ -766,30 +765,6 @@ fn disk_and_image_are_two_views_of_one_disk() {
     assert_eq!(again.read("g").unwrap(), b"payload");
 }
 
-/// A geometry with no known filesystem layout is declined by name rather than
-/// guessed at. Its sectors stay reachable through [`Image`].
-#[test]
-fn the_filesystem_layer_declines_a_shape_it_has_not_verified() {
-    let bytes = vec![0u8; HD.len()];
-    let image = Image::open(&bytes).unwrap();
-    assert_eq!(image.geometry(), HD);
-    assert_eq!(image.sector(79, 1, 21).unwrap().len(), BSIZE);
-
-    let err = match Disk::from_image(image) {
-        Err(err) => err,
-        Ok(_) => panic!("expected a rejection"),
-    };
-    assert!(
-        matches!(
-            err,
-            Error::UnsupportedGeometry {
-                shape: "high-density"
-            }
-        ),
-        "{err:?}"
-    );
-}
-
 /// A `Geometry` is a plain value: anyone can name one, and the arithmetic
 /// holds for shapes this crate has no filesystem support for.
 #[test]
@@ -804,6 +779,165 @@ fn geometry_is_arithmetic_not_a_lookup_table() {
     assert_eq!(odd.root_block(), (360 - 1 + 2) >> 1);
     assert_eq!(odd.lba(39, 0, 8), Some(359));
     assert_eq!(odd.lba(0, 1, 0), None);
+}
+
+/// A whole HD volume, written and read back by this crate: nested directories,
+/// a file large enough to need extension blocks, both filesystems.
+#[test]
+fn hd_volumes_round_trip_through_both_layers() {
+    for fs in [FileSystem::Ofs, FileSystem::Ffs] {
+        let big: Vec<u8> = (0..fs.data_capacity() * 80 + 7)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let mut vol = Volume::new("BigDisk", fs);
+        vol.set_geometry(HD);
+        vol.add_file("readme", b"top\n").unwrap();
+        vol.add_file("c/big", &big).unwrap();
+        vol.add_file("c/util/deep", b"deep\n").unwrap();
+        let img = vol.build().unwrap();
+        assert_eq!(img.len(), 1_802_240, "{fs:?}");
+
+        // The raw layer sees HD geometry; the last sector of the last track is
+        // addressable, which it would not be under DD.
+        let image = Image::open(&img).unwrap();
+        assert_eq!(image.geometry(), HD);
+        assert_eq!(image.track(79, 1).unwrap().len(), 22 * BSIZE);
+        assert!(image.sector(79, 1, 21).is_ok());
+
+        // The filesystem layer finds its root where the formula says.
+        let disk = Disk::open(&img).unwrap();
+        assert_eq!(disk.geometry(), HD);
+        assert_eq!(disk.geometry().root_block(), 1760);
+        assert_eq!(disk.label(), "BigDisk");
+        assert_eq!(disk.filesystem(), fs);
+        assert_eq!(disk.read("readme").unwrap(), b"top\n");
+        assert_eq!(disk.read("c/big").unwrap(), big);
+        assert_eq!(disk.read("c/util/deep").unwrap(), b"deep\n");
+        disk.verify().unwrap();
+
+        // The root block really is at 1760 and not merely reported as such.
+        assert_eq!(
+            read_u32(block(&img, 1760), BSIZE - 4),
+            ST_ROOT,
+            "root block at the HD position"
+        );
+        assert_eq!(read_u32(block(&img, 1760), 0), T_HEADER);
+    }
+}
+
+/// HD holds what DD cannot — the only reason to want it.
+///
+/// The figures are lower than the media's size because the block allocator
+/// walks upward from the root block and never revisits the blocks below it, so
+/// a volume can fill only the upper half of its disk. That is a pre-existing
+/// limit of the builder rather than anything to do with HD — it caps a DD
+/// floppy at about 432 KB too — and it is fixed when allocation moves onto the
+/// bitmap. Asserted here at its real value rather than the one it should be, so
+/// this test says something true.
+#[test]
+fn hd_holds_what_dd_cannot() {
+    let payload = vec![0x42u8; 600_000];
+
+    let mut dd = Volume::new("Small", FileSystem::Ffs);
+    dd.add_file("payload", &payload).unwrap();
+    assert!(
+        matches!(dd.build(), Err(Error::DiskFull { .. })),
+        "600 KB does not fit what a DD volume can currently reach"
+    );
+
+    let mut hd = Volume::new("Big", FileSystem::Ffs);
+    hd.set_geometry(HD);
+    hd.add_file("payload", &payload).unwrap();
+    let img = hd.build().unwrap();
+    assert_eq!(Disk::open(&img).unwrap().read("payload").unwrap(), payload);
+}
+
+/// HD writes stay deterministic — the contract that makes committed `.adf`
+/// deliverables byte-reproducible does not lapse on bigger media.
+#[test]
+fn hd_output_is_deterministic() {
+    let build = || {
+        let mut vol = Volume::new("D", FileSystem::Ofs);
+        vol.set_geometry(HD);
+        vol.add_file("a", &vec![0xa5u8; 5000]).unwrap();
+        vol.build().unwrap()
+    };
+    assert_eq!(build(), build());
+}
+
+/// The acceptance test the spec asks for: read an HD ADF this crate did not
+/// write.
+///
+/// Every HD fact in the spec is derived — from Commodore's `rootblock.c`
+/// formula, and from arithmetic about how many blocks a bitmap block covers —
+/// and derived facts about on-disk layout have been wrong in this family
+/// before. So HD support is not claimed on the strength of the formula alone.
+///
+/// Ignored by default and reads its image from `ADF_HD_IMAGE`, because no media
+/// lives in this repository. Run it as:
+///
+/// ```text
+/// ADF_HD_IMAGE=/path/to/disk.adf cargo test -- --ignored hd_image_from_the_wild
+/// ```
+///
+/// It was run before HD support was claimed, against images written by
+/// amitools' `xdftool` — an independent implementation, and the same one this
+/// crate's DD layout facts were originally taken from. Both filesystems were
+/// checked. It found the root block at 1760, one bitmap block and no bitmap
+/// extension, exactly as the formula predicts.
+#[test]
+#[ignore = "needs an HD ADF; set ADF_HD_IMAGE"]
+fn hd_image_from_the_wild() {
+    let Ok(path) = std::env::var("ADF_HD_IMAGE") else {
+        panic!("set ADF_HD_IMAGE to the path of an HD .adf");
+    };
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+
+    let image = Image::open(&bytes).unwrap();
+    assert_eq!(image.geometry(), HD, "{path} is not an HD image");
+    assert_eq!(image.geometry().blocks(), 3520);
+    assert_eq!(image.track(79, 1).unwrap().len(), 22 * BSIZE);
+
+    let disk = Disk::from_image(image).unwrap();
+    assert_eq!(disk.geometry().root_block(), 1760);
+
+    // The root block is where the formula says, in the image's own bytes.
+    let root = block(&bytes, 1760);
+    assert_eq!(read_u32(root, 0), T_HEADER, "root primary type");
+    assert_eq!(read_u32(root, BSIZE - 4), ST_ROOT, "root secondary type");
+
+    // One bitmap block covers the whole disk: bm_pages[0] is set, the rest are
+    // empty, and there is no bitmap-extension chain.
+    assert_eq!(
+        read_u32(root, BSIZE - 200),
+        0xffff_ffff,
+        "bitmap valid flag"
+    );
+    assert_eq!(read_u32(root, BSIZE - 196), 1761, "bm_pages[0]");
+    for i in 1..25 {
+        assert_eq!(read_u32(root, BSIZE - 196 + 4 * i), 0, "bm_pages[{i}]");
+    }
+    assert_eq!(read_u32(root, BSIZE - 96), 0, "no bitmap extension");
+
+    // Everything the volume holds reads back, and every checksum agrees.
+    fn walk(disk: &Disk, path: &str) {
+        for e in disk.list(path).unwrap() {
+            let child = if path.is_empty() {
+                e.name.clone()
+            } else {
+                format!("{path}/{}", e.name)
+            };
+            match e.kind {
+                EntryKind::Directory => walk(disk, &child),
+                EntryKind::File => {
+                    let bytes = disk.read(&child).unwrap();
+                    assert_eq!(bytes.len(), e.size as usize, "{child} size");
+                }
+            }
+        }
+    }
+    walk(&disk, "");
+    disk.verify().unwrap();
 }
 
 /// A disk formatted but never made bootable carries no bootstrap and a zero
