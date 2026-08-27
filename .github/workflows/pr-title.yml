@@ -1,0 +1,55 @@
+name: PR title
+
+# Its own workflow, and not a job in ci.yml, because of the trigger. This must
+# re-run when a title is *edited*, which the default `pull_request` types
+# (opened, synchronize, reopened) do not cover — without `edited`, a pull
+# request opened with a good title and renamed afterwards keeps its green tick,
+# and a bad title can only be fixed by pushing a commit. Putting `edited` on
+# ci.yml instead would re-run fmt, clippy and the three-platform test matrix
+# every time someone touched a description.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: PR title
+    runs-on: ubuntu-latest
+    steps:
+      # A squash takes its commit subject from the pull request title once a
+      # branch has more than one commit, so the title is the only
+      # conventional-commit prefix release-plz ever sees. Without one the whole
+      # release is filed under "Other" as a single raw line — which is how #26
+      # shipped. See 198x/decisions/releasing-published-crates.md.
+      - name: Check the title carries a conventional-commit prefix
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          pattern='^(feat|fix|chore|docs|refactor|perf|test|ci|build|style|revert)(\([a-z0-9._-]+\))?!?: .+'
+          if [[ "$TITLE" =~ $pattern ]]; then
+            echo "OK: $TITLE"
+            exit 0
+          fi
+          cat >&2 <<MSG
+          The pull request title needs a conventional-commit prefix.
+
+            got:      $TITLE
+            expected: <type>[(scope)][!]: <description>
+            types:    feat fix chore docs refactor perf test ci build style revert
+
+          This is not bookkeeping. Squashing several commits takes the commit
+          subject from this title, so it is the only prefix release-plz sees.
+          Without one, the release lands in the changelog under "Other" as a
+          single raw line instead of under Added or Fixed.
+
+          Rename the pull request; this check reruns on its own.
+          MSG
+          exit 1
