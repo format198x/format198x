@@ -216,6 +216,14 @@ is a tool you run many times.
 
 `verify`'s signature and behaviour are untouched, so no consumer changes.
 
+> **Deviation, 2026-08-27.** Its signature is untouched; its behaviour is not,
+> and deliberately. `verify` was rejecting disks that are not faulty — anything
+> with a zero boot-checksum field, which is what AmigaDOS `Format` leaves until
+> `Install` writes a bootstrap, and so what nearly every data disk carries. It
+> now accepts that state and refuses everything else. Two commits, both with the
+> reasoning; see **Outcome**. Keeping the stated behaviour would have meant
+> keeping a bug because the spec had promised it.
+
 ### Verifying a raw image
 
 At the raw layer there is nothing to checksum — an ADF is decoded sectors with
