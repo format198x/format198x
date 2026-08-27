@@ -1,5 +1,7 @@
 use crate::error::Error;
 use crate::fs::FileSystem;
+use crate::geometry::{Geometry, RESERVED};
+use crate::image::Image;
 use crate::layout::*;
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,10 @@ pub struct Entry {
 /// pointer is range-checked and every chain is loop-bounded, so a corrupt image
 /// yields an [`Error::Corrupt`] rather than a panic.
 ///
+/// This is the filesystem layer. Beneath it sits [`Image`], the raw sectors;
+/// [`Disk::image`] hands that back for anyone who wants the bytes a drive would
+/// see rather than the files AmigaDOS would show.
+///
 /// ```
 /// use format198x_commodore_amiga_adf::{Disk, FileSystem, Volume};
 /// let mut vol = Volume::new("Demo", FileSystem::Ofs);
@@ -60,43 +66,16 @@ pub struct Entry {
 /// disk.verify().unwrap();
 /// ```
 pub struct Disk<'a> {
+    image: Image<'a>,
     img: &'a [u8],
     fs: FileSystem,
 }
 
-/// Identify a non-ADF disk-image container by its leading bytes.
-///
-/// Deliberately small: these are the containers an Amiga disk actually arrives
-/// in, and naming one wrongly would be worse than not naming it. Anything
-/// unrecognised falls through to the size check, which is the right answer for
-/// a truncated or padded ADF. Short inputs simply match nothing — `starts_with`
-/// on a slice shorter than the magic is `false`, never a panic.
-fn identify_container(img: &[u8]) -> Option<(&'static str, &'static str)> {
-    const CANDIDATES: &[(&[u8], &str, &str)] = &[
-        (
-            b"CAPS",
-            "IPF",
-            "a flux-level image from the Software Preservation Society",
-        ),
-        (
-            b"UAE-1ADF",
-            "extended ADF",
-            "UAE's variable-length-track ADF",
-        ),
-        (b"DMS!", "DMS", "a Disk Masher System archive"),
-        (b"PK\x03\x04", "zip", "a zip archive — extract it first"),
-        (b"\x1f\x8b", "gzip", "a gzip stream, most likely an .adz"),
-    ];
-    CANDIDATES
-        .iter()
-        .find(|(magic, _, _)| img.starts_with(magic))
-        .map(|(_, format, detail)| (*format, *detail))
-}
-
 impl<'a> Disk<'a> {
-    /// Open and validate an ADF image: it must be an 880 KB DD floppy with a
-    /// recognised `DOS` boot signature and a root block. Cheap — the deep
-    /// checksum pass is [`verify`](Disk::verify).
+    /// Open and validate an ADF image: it must be a floppy of a geometry this
+    /// crate knows — [`DD`](crate::DD) or [`HD`](crate::HD) — with a recognised
+    /// `DOS` boot signature and a root block. Cheap — the deep checksum pass is
+    /// [`verify`](Disk::verify).
     ///
     /// A file in another disk-image container — IPF, DMS, a zip, a gzipped
     /// `.adz` — is named as what it is
@@ -104,15 +83,16 @@ impl<'a> Disk<'a> {
     /// complaint about a format the file never was sends the reader to check a
     /// disk image that is not at fault.
     pub fn open(img: &'a [u8]) -> Result<Self, Error> {
-        // Ask what the file is before complaining about how big it is.
-        if let Some((format, detail)) = identify_container(img) {
-            return Err(Error::UnsupportedContainer { format, detail });
-        }
-        if img.len() != BLOCKS as usize * BSIZE {
-            return Err(Error::Corrupt {
-                what: "image size (not an 880K DD floppy)",
-            });
-        }
+        Self::from_image(Image::open(img)?)
+    }
+
+    /// Interpret an already-opened raw [`Image`] as an AmigaDOS volume.
+    ///
+    /// The same validation [`open`](Disk::open) does, minus the container and
+    /// size checks the `Image` has already passed.
+    pub fn from_image(image: Image<'a>) -> Result<Self, Error> {
+        let geometry = image.geometry();
+        let img = image.bytes();
         if &img[0..3] != b"DOS" {
             return Err(Error::Corrupt {
                 what: "boot-block signature",
@@ -127,11 +107,21 @@ impl<'a> Disk<'a> {
                 });
             }
         };
-        let root = &img[ROOT_BLK as usize * BSIZE..][..BSIZE];
+        let root = image.block(geometry.root_block())?;
         if read_u32(root, 0) != T_HEADER || read_u32(root, BSIZE - 4) != ST_ROOT {
             return Err(Error::Corrupt { what: "root block" });
         }
-        Ok(Disk { img, fs })
+        Ok(Disk { image, img, fs })
+    }
+
+    /// The raw sectors beneath the filesystem.
+    pub fn image(&self) -> Image<'a> {
+        self.image
+    }
+
+    /// The media's geometry.
+    pub fn geometry(&self) -> Geometry {
+        self.image.geometry()
     }
 
     /// The volume's filesystem.
@@ -141,7 +131,7 @@ impl<'a> Disk<'a> {
 
     /// The volume label.
     pub fn label(&self) -> String {
-        header_name(self.img, ROOT_BLK)
+        header_name(self.img, self.root_block())
     }
 
     /// List the entries of a directory (`""` or `"/"` is the root).
@@ -170,7 +160,7 @@ impl<'a> Disk<'a> {
                 });
                 e = read_u32(eb, BSIZE - 16); // hash_chain
                 guard += 1;
-                if guard > BLOCKS {
+                if guard > self.blocks() {
                     return Err(Error::Corrupt {
                         what: "hash chain loop",
                     });
@@ -220,42 +210,96 @@ impl<'a> Disk<'a> {
     /// Verify every checksum in the volume — the boot block, the root, the
     /// bitmap, and every reachable header, extension, and (OFS) data block —
     /// plus structural sanity (block pointers in range, no directory cycles).
+    ///
+    /// Fast, and stops at the first fault: it answers "is this disk broken".
+    /// For "what is wrong with this disk", which reports every fault it can
+    /// find and checks the bitmap's agreement too, use [`check`](Disk::check).
     pub fn verify(&self) -> Result<(), Error> {
-        let mut probe = self.img[..1024].to_vec();
-        put_u32(&mut probe, 4, 0);
-        if boot_checksum(&probe) != read_u32(self.img, 4) {
-            return Err(Error::Corrupt {
-                what: "boot checksum",
-            });
+        if let Some(what) = self.boot_checksum_fault() {
+            return Err(Error::Corrupt { what });
         }
-        let root = self.cblock(ROOT_BLK)?;
+        let root = self.cblock(self.root_block())?;
         if read_u32(root, 20) != checksum(root, 20) {
             return Err(Error::Corrupt {
                 what: "root checksum",
             });
         }
-        let bm = self.cblock(BITMAP_BLK)?;
+        let bm = self.cblock(self.geometry().bitmap_block())?;
         if read_u32(bm, 0) != checksum(bm, 0) {
             return Err(Error::Corrupt {
                 what: "bitmap checksum",
             });
         }
         let mut seen = Vec::new();
-        self.verify_dir(ROOT_BLK, &mut seen)
+        self.verify_dir(self.root_block(), &mut seen)
     }
 
-    /// The 512-byte slice for a block number, range-checked (2..BLOCKS).
-    fn cblock(&self, n: u32) -> Result<&'a [u8], Error> {
-        if !(2..BLOCKS).contains(&n) {
+    /// Why the boot checksum is wrong, or `None` if it is sound — or absent
+    /// for a good reason.
+    ///
+    /// A disk formatted but never made bootable carries no bootstrap and a zero
+    /// checksum field, and that is the format working as intended rather than a
+    /// fault: the ROM validates the boot block only when it is about to run the
+    /// bootstrap, so a disk with nothing to run has nothing to check. AmigaDOS
+    /// `Format` leaves it this way until `Install` writes the bootstrap, and
+    /// amitools does the same. Treating it as corruption would condemn most
+    /// data disks ever written.
+    ///
+    /// Anything else is checked: a stored checksum that is present, or a
+    /// bootstrap that is present, must agree.
+    fn boot_checksum_fault(&self) -> Option<&'static str> {
+        let stored = read_u32(self.img, 4);
+        if stored == 0 && !has_boot_code(self.img) {
+            return None; // formatted, never installed
+        }
+        let mut probe = self.img[..1024].to_vec();
+        put_u32(&mut probe, 4, 0);
+        (boot_checksum(&probe) != stored).then_some("boot checksum")
+    }
+
+    /// The image's bytes.
+    pub(crate) fn bytes(&self) -> &'a [u8] {
+        self.img
+    }
+
+    /// Whether the boot block's checksum is wrong, for the exhaustive check.
+    pub(crate) fn boot_fault(&self) -> Option<&'static str> {
+        self.boot_checksum_fault()
+    }
+
+    /// The name in an entry's header block.
+    pub(crate) fn entry_name(&self, blk: u32) -> Result<String, Error> {
+        self.cblock(blk)?;
+        Ok(header_name(self.img, blk))
+    }
+
+    /// Blocks on this volume's media.
+    fn blocks(&self) -> u32 {
+        self.geometry().blocks()
+    }
+
+    /// Where the root block sits on this volume's media.
+    fn root_block(&self) -> u32 {
+        self.geometry().root_block()
+    }
+
+    /// The 512-byte slice for a filesystem block pointer.
+    ///
+    /// Stricter than [`Image::block`]: a filesystem pointer may not name the
+    /// two reserved boot blocks, so the accepted range is `2..blocks`.
+    pub(crate) fn cblock(&self, n: u32) -> Result<&'a [u8], Error> {
+        if n < RESERVED {
             return Err(Error::Corrupt {
                 what: "block pointer out of range",
             });
         }
-        Ok(&self.img[n as usize * BSIZE..][..BSIZE])
+        self.image.block(n).map_err(|_| Error::Corrupt {
+            what: "block pointer out of range",
+        })
     }
 
     /// Find `name` in directory `dir`, following the hash chain on a collision.
-    fn lookup(&self, dir: u32, name: &str) -> Result<Option<u32>, Error> {
+    pub(crate) fn lookup(&self, dir: u32, name: &str) -> Result<Option<u32>, Error> {
         let b = self.cblock(dir)?;
         let mut e = read_u32(b, 24 + 4 * name_hash(name));
         let mut guard = 0;
@@ -266,7 +310,7 @@ impl<'a> Disk<'a> {
             }
             e = read_u32(eb, BSIZE - 16);
             guard += 1;
-            if guard > BLOCKS {
+            if guard > self.blocks() {
                 return Err(Error::Corrupt {
                     what: "hash chain loop",
                 });
@@ -276,8 +320,8 @@ impl<'a> Disk<'a> {
     }
 
     /// Resolve a slash path to its header block.
-    fn resolve(&self, path: &str) -> Result<u32, Error> {
-        let mut blk = ROOT_BLK;
+    pub(crate) fn resolve(&self, path: &str) -> Result<u32, Error> {
+        let mut blk = self.root_block();
         for comp in path.split('/').filter(|s| !s.is_empty()) {
             match self.lookup(blk, comp)? {
                 Some(next) => blk = next,
@@ -292,7 +336,7 @@ impl<'a> Disk<'a> {
     }
 
     /// Resolve a path that must be a directory (root or user dir).
-    fn resolve_dir(&self, path: &str) -> Result<u32, Error> {
+    pub(crate) fn resolve_dir(&self, path: &str) -> Result<u32, Error> {
         let blk = self.resolve(path)?;
         let sec = read_u32(self.cblock(blk)?, BSIZE - 4);
         if sec == ST_ROOT || sec == ST_USERDIR {
@@ -307,7 +351,7 @@ impl<'a> Disk<'a> {
 
     /// Gather a file's data blocks in order, from its header and extension
     /// chain (each block pointer range-checked, the chain loop-bounded).
-    fn data_blocks(&self, hdr: u32) -> Result<Vec<u32>, Error> {
+    pub(crate) fn data_blocks(&self, hdr: u32) -> Result<Vec<u32>, Error> {
         let mut blocks = Vec::new();
         collect_ptrs(self.img, hdr, &mut blocks);
         let mut ext = read_u32(self.cblock(hdr)?, BSIZE - 8);
@@ -317,7 +361,7 @@ impl<'a> Disk<'a> {
             collect_ptrs(self.img, ext, &mut blocks);
             ext = read_u32(eb, BSIZE - 8);
             guard += 1;
-            if guard > BLOCKS {
+            if guard > self.blocks() {
                 return Err(Error::Corrupt {
                     what: "extension chain loop",
                 });
@@ -361,7 +405,7 @@ impl<'a> Disk<'a> {
                 }
                 e = read_u32(eb, BSIZE - 16);
                 guard += 1;
-                if guard > BLOCKS {
+                if guard > self.blocks() {
                     return Err(Error::Corrupt {
                         what: "hash chain loop",
                     });
@@ -384,7 +428,7 @@ impl<'a> Disk<'a> {
             }
             ext = read_u32(eb, BSIZE - 8);
             guard += 1;
-            if guard > BLOCKS {
+            if guard > self.blocks() {
                 return Err(Error::Corrupt {
                     what: "extension chain loop",
                 });

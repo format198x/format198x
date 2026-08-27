@@ -1,6 +1,8 @@
 # ADF: one crate, two layers — raw image and filesystem
 
-**Status:** Proposed 2026-08-26. Not started.
+**Status:** Steps 1–4 landed 2026-08-27. Step 5 (Emu198x migrating its five
+consumers and deleting its copy) is the Emu198x session's, and outstanding. See
+**Outcome** at the end for what the work found that this spec did not predict.
 
 **Goal:** Retire Emu198x's parallel ADF crate by giving
 `format198x-commodore-amiga-adf` the raw sector layer the emulator needs,
@@ -214,6 +216,14 @@ is a tool you run many times.
 
 `verify`'s signature and behaviour are untouched, so no consumer changes.
 
+> **Deviation, 2026-08-27.** Its signature is untouched; its behaviour is not,
+> and deliberately. `verify` was rejecting disks that are not faulty — anything
+> with a zero boot-checksum field, which is what AmigaDOS `Format` leaves until
+> `Install` writes a bootstrap, and so what nearly every data disk carries. It
+> now accepts that state and refuses everything else. Two commits, both with the
+> reasoning; see **Outcome**. Keeping the stated behaviour would have meant
+> keeping a bug because the spec had promised it.
+
 ### Verifying a raw image
 
 At the raw layer there is nothing to checksum — an ADF is decoded sectors with
@@ -279,3 +289,82 @@ and the documentation is the only place to stop them.
 
 Step 5 is not a precondition for 1-4. Nothing here breaks Emu198x while it
 carries its own crate — the two coexist exactly as they do today.
+
+---
+
+## Outcome
+
+Steps 1–4 landed on 2026-08-27 in this order, one commit each:
+
+1. `Geometry`, `Image`, `ImageMut`; `Disk` re-expressed over `Image`.
+2. HD in both layers.
+3. `DiskMut`, with `Volume::build` re-expressed over it.
+4. `Disk::check`.
+
+The shape held. What follows is what the plan could not know.
+
+### HD was verified against another implementation, not a period disk
+
+The spec asks for verification against "a real HD ADF", and is right to: every
+HD fact in it is derived. There is no HD ADF in the Amiga TOSEC sets — a search
+of the whole tree for a 1,802,240-byte file returned nothing, which fits, since
+Amiga HD floppies were rare.
+
+So the oracle is amitools' `xdftool`, an independent implementation and the one
+this crate's DD layout facts were originally taken from. Images it wrote put the
+root block at 1760, the bitmap at 1761, `bm_pages[0]` set with the rest empty
+and no bitmap-extension chain — every derived fact confirmed. Both filesystems
+on both densities were read back, walked and checksummed against known contents,
+and disks this crate had written and churned were handed back to `xdftool`,
+which agreed with the bitmap block for block.
+
+That is strong, but it is cross-implementation agreement rather than a
+period-original dump. Anyone who later finds a real HD disk should run
+`hd_image_from_the_wild` against it: `ADF_HD_IMAGE=<path> cargo test -- --ignored`.
+
+### Three faults the work found, each fixed on its own commit
+
+None was in scope. Each was found by reading disks this crate had not written —
+which is the method worth keeping, since the crate had only ever verified its
+own stricter output.
+
+- **Every uninstalled disk read as corrupt.** `verify` rejected any disk with a
+  zero boot-checksum field. AmigaDOS `Format` leaves it zero until `Install`
+  writes the bootstrap, so ordinary data disks — every one `xdftool` produces —
+  failed. The ROM only checksums the boot block when about to run it.
+- **A bootstrap was looked for in the wrong place.** The first fix asked whether
+  any of the 1024-byte boot area was non-zero. The ROM executes from offset 12,
+  in sector 0; bytes living only in sector 1 are not a bootstrap. A real disk
+  (`WheelDriverAkiko.adf`) carries exactly that filler and was called corrupt.
+- **A volume could fill only half its disk.** The block planner walked upward
+  from the root and never revisited what lay below, so an 880 KB DD floppy
+  topped out near 432 KB. Not introduced by HD — it had always been there, and
+  HD only made it visible. Fixed by step 3, where allocation moved onto the
+  bitmap: DD now reaches 886 KB and HD 1.78 MB, 98% of the media rather than 49%.
+
+### Byte-for-byte output is unchanged
+
+Re-expressing `Volume::build` over `DiskMut` put the crate's determinism
+contract at risk — build198x has committed `.adf` deliverables. The allocator
+therefore takes the lowest free block *above the root* before considering
+anything below, which is exactly the order the old planner used. Every image
+that built before builds to the same bytes; only content that previously failed
+now succeeds.
+
+Checked against a corpus of eight images — `master`, `master_fs`, and nested
+trees with colliding names, empty files, deep directories and extension blocks,
+across both filesystems and both geometries — hashed before the change and
+unchanged after. Freed blocks are zeroed for the same reason, so a disk written,
+emptied and rewritten matches one written straight.
+
+### Two small additions beyond the sketch
+
+- `Volume::set_geometry`, without which the acceptance table's write-to-HD cell
+  is unreachable. Additive; the default is still `DD`.
+- `DiskMut::format`, which turns a blank image into an empty volume. Needed by
+  `Volume::build` and the only way to make a fresh HD disk from nothing.
+- `identify_container` and `DiskMut::free_blocks` made public.
+
+`Error` gained `OutOfBounds` and `BadSectorLength`; `DiskFull` and the
+wrong-size `Corrupt` message stopped naming DD specifically. `Disk`'s existing
+methods are untouched.
