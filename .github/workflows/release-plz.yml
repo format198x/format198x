@@ -87,3 +87,62 @@ jobs:
               cargo publish -p "$pkg"
             fi
           done
+
+      # Announce the release in Discord. Every crate released in this run goes
+      # into a single message rather than one post per crate: versioning here is
+      # per-package, so a normal cycle releases several at once and a post each
+      # would bury the channel.
+      #
+      # Reads DISCORD_RELEASE_WEBHOOK (org-level secret). Absent, the step logs
+      # and succeeds — a missing notification must not fail a release that has
+      # already published to crates.io.
+      - name: Announce the release in Discord
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASES: ${{ steps.release.outputs.releases }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEBHOOK}" ]; then
+            echo "::notice::DISCORD_RELEASE_WEBHOOK is not set — nothing posted."
+            exit 0
+          fi
+
+          count=$(jq 'length' <<<"$RELEASES")
+          if [ "$count" = "0" ]; then
+            echo "::notice::no releases in this run — nothing posted."
+            exit 0
+          fi
+
+          # One embed field per crate, each linking to its own GitHub Release.
+          # Built with jq throughout so crate names and versions are escaped
+          # rather than pasted into a hand-written JSON string.
+          jq -n \
+            --argjson releases "$RELEASES" \
+            --arg repo "$REPO" \
+            --arg base "${SERVER_URL}/${REPO}/releases/tag" \
+            --arg title "$( [ "$count" = "1" ] && echo "format198x — 1 crate released" || echo "format198x — ${count} crates released" )" \
+            '{
+               username: "198x releases",
+               embeds: [{
+                 title: $title,
+                 url: ($base + "/" + ($releases[0].tag // ($releases[0].package_name + "-v" + $releases[0].version))),
+                 color: 3066993,
+                 fields: ($releases | map({
+                   name: (.package_name + " v" + .version),
+                   value: ("[release notes](" + $base + "/" + (.tag // (.package_name + "-v" + .version)) + ") · [crates.io](https://crates.io/crates/" + .package_name + "/" + .version + ")"),
+                   inline: false
+                 })),
+                 footer: { text: $repo }
+               }]
+             }' > payload.json
+
+          curl --silent --show-error --fail-with-body \
+               --retry 3 --retry-delay 5 --retry-all-errors \
+               -H "Content-Type: application/json" \
+               -X POST -d @payload.json "$WEBHOOK"
+
+          echo "Announced ${count} crate(s) to Discord."
