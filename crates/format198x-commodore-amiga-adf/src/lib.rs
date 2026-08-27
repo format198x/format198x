@@ -1,6 +1,26 @@
-//! Amiga ADF disk-image writer (OFS and FFS).
+//! Amiga ADF disk images, in two layers.
 //!
-//! Two entry points. [`Volume`] builds an arbitrary file/directory tree onto a
+//! An ADF is a raw dump of a floppy's decoded sectors, and usually — but not
+//! always — an AmigaDOS filesystem written across them. This crate models both,
+//! because a consumer needs one or the other and rarely both:
+//!
+//! - **The raw layer.** [`Image`] and [`ImageMut`] address the sectors
+//!   themselves, by cylinder/head/sector the way a drive does or by logical
+//!   block the way AmigaDOS does — the same bytes, two names. [`Geometry`] is
+//!   the shape they sit in ([`DD`] or [`HD`]). This layer knows nothing about
+//!   files: a bootblock-only disk, a copy-protected loader's track data, or a
+//!   blank image are all perfectly good [`Image`]s. An emulator's floppy
+//!   peripheral wants this layer and nothing above it.
+//! - **The filesystem layer.** [`Disk`] reads an OFS/FFS volume — `list`,
+//!   `read`, `verify` — and [`Volume`] writes one. This is the layer that knows
+//!   what a file is.
+//!
+//! The layering is one-directional: [`Disk::open`] opens an [`Image`] and then
+//! interprets it, and [`Disk::image`] hands the raw view back. Nothing at the
+//! raw layer depends on anything above it.
+//!
+//! Two entry points on the write side. [`Volume`] builds an arbitrary
+//! file/directory tree onto a
 //! DD floppy image (880 KB) — `add_file`/`add_dir`, then `build`. [`master`]
 //! (and [`master_fs`]) is the common special case: a Kickstart-1.x hunk
 //! executable plus a `startup-sequence` that runs it, the disk an Amiga boots
@@ -47,12 +67,22 @@
 //!   1-based sequence, data size, next block, checksum) then up to 488 payload
 //!   bytes; FFS stores a raw 512-byte sector and relies on the pointer tables.
 //!
+//! **What a clean [`Image::verify`] does not tell you.** An ADF is decoded
+//! sectors with no per-sector check data — that absence is exactly what
+//! distinguishes it from a flux-level image such as IPF. So the raw layer can
+//! confirm the file is an ADF of a known shape and nothing more; it cannot tell
+//! you a sector is intact, because the format does not record enough to know.
+//! Soundness is a filesystem question, answered by [`Disk::verify`].
+//!
 //! Pure byte-layout — `core`/`std` only, no dependencies. Internally organised
-//! as small modules — `error`, `fs`, `layout` (block constants and primitives),
+//! as small modules — `error`, `fs`, `geometry` and `image` (the raw layer),
+//! `layout` (block constants and primitives),
 //! `write` ([`Volume`]/[`master`]), and `read` ([`Disk`]) — re-exported here.
 
 mod error;
 mod fs;
+mod geometry;
+mod image;
 mod layout;
 mod read;
 mod write;
@@ -62,5 +92,7 @@ mod tests;
 
 pub use error::Error;
 pub use fs::FileSystem;
+pub use geometry::{DD, Geometry, HD};
+pub use image::{Image, ImageMut};
 pub use read::{Disk, Entry, EntryKind};
 pub use write::{Volume, master, master_fs};

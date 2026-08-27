@@ -42,6 +42,37 @@ pub enum Error {
         /// The path that did not resolve.
         path: String,
     },
+    /// A CHS or block address lies outside the image's geometry
+    /// ([`Image`](crate::Image), [`ImageMut`](crate::ImageMut)).
+    ///
+    /// The raw layer returns this rather than indexing and panicking, because
+    /// this crate is destined for an FFI boundary where unwinding is undefined
+    /// behaviour.
+    OutOfBounds {
+        /// Which coordinate was out of range — `"cylinder"`, `"head"`,
+        /// `"sector"` or `"block"`.
+        what: &'static str,
+        /// The value asked for.
+        got: u32,
+        /// One past the last valid value.
+        limit: u32,
+    },
+    /// A sector write supplied something other than a whole 512-byte sector
+    /// ([`ImageMut::write_sector`](crate::ImageMut::write_sector)).
+    BadSectorLength {
+        /// The length supplied.
+        got: usize,
+    },
+    /// The image is a shape this crate reads at the raw layer but whose
+    /// filesystem layout it does not claim ([`Disk::from_image`](crate::Disk::from_image)).
+    ///
+    /// Sectors, tracks and blocks are still reachable through
+    /// [`Image`](crate::Image); it is only the AmigaDOS interpretation of them
+    /// that is withheld.
+    UnsupportedGeometry {
+        /// The shape, named — e.g. `"high-density"`.
+        shape: &'static str,
+    },
     /// The image is a disk image in a container this crate does not read
     /// ([`Disk::open`](crate::Disk::open)). Named rather than measured: an IPF
     /// or a `.adz` told its *size* is wrong sends the reader hunting a
@@ -69,6 +100,16 @@ impl core::fmt::Display for Error {
             Self::BadPath { path, reason } => write!(f, "bad path {path:?}: {reason}"),
             Self::Corrupt { what } => write!(f, "corrupt ADF: {what}"),
             Self::NotFound { path } => write!(f, "not found: {path:?}"),
+            Self::OutOfBounds { what, got, limit } => {
+                write!(f, "{what} {got} is out of range (0..{limit})")
+            }
+            Self::BadSectorLength { got } => {
+                write!(f, "a sector is 512 bytes (got {got})")
+            }
+            Self::UnsupportedGeometry { shape } => write!(
+                f,
+                "{shape} media: this crate reads its sectors but does not read its filesystem"
+            ),
             Self::UnsupportedContainer { format, detail } => write!(
                 f,
                 "not an ADF: the file is {format} — {detail}, which this crate does not read"

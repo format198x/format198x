@@ -491,11 +491,317 @@ fn an_unrecognised_file_still_gets_the_size_complaint() {
             matches!(
                 err,
                 Error::Corrupt {
-                    what: "image size (not an 880K DD floppy)"
+                    what: "image size (neither a DD nor an HD floppy)"
                 }
             ),
             "{err:?}"
         );
         assert!(err.to_string().contains("image size"), "{err}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// The raw layer: geometry, Image, ImageMut
+// ---------------------------------------------------------------------------
+
+use crate::geometry::{DD, Geometry, HD};
+use crate::image::{Image, ImageMut};
+
+/// The root-block formula reproduces the answer every 1980s AmigaDOS manual
+/// gives for a DD floppy. That known answer is what makes it safe to trust the
+/// same formula on media this crate has not seen — see [`Geometry::root_block`].
+#[test]
+fn geometry_reproduces_the_published_dd_numbers() {
+    assert_eq!(DD.blocks(), 1760);
+    assert_eq!(DD.len(), 901_120);
+    assert_eq!(DD.root_block(), 880, "the documented DD root block");
+    // The constants this crate has always used, now derived rather than fixed.
+    assert_eq!(DD.root_block(), ROOT_BLK);
+    assert_eq!(DD.bitmap_block(), BITMAP_BLK);
+    assert_eq!(DD.blocks(), BLOCKS);
+}
+
+/// HD is twice the sectors per track and nothing else: same cylinders, same
+/// heads. The root lands halfway across, as on DD.
+#[test]
+fn geometry_derives_hd_from_the_same_formula() {
+    assert_eq!(HD.cylinders, DD.cylinders);
+    assert_eq!(HD.heads, DD.heads);
+    assert_eq!(HD.sectors_per_track, 2 * DD.sectors_per_track);
+    assert_eq!(HD.blocks(), 3520);
+    assert_eq!(HD.len(), 1_802_240);
+    assert_eq!(HD.root_block(), 1760);
+}
+
+/// One bitmap block still covers an HD disk. A bitmap block holds 508 bytes of
+/// allocation bits — 4064 blocks' worth — and HD needs 3518. Stated because a
+/// reader would otherwise reasonably expect a bitmap-extension chain.
+#[test]
+fn one_bitmap_block_covers_hd() {
+    let bits_per_block = (BSIZE - 4) * 8;
+    assert_eq!(bits_per_block, 4064);
+    assert!(HD.blocks() as usize - 2 <= bits_per_block);
+}
+
+/// The CHS→LBA mapping is the whole of the conversion between the raw layer's
+/// two ways of naming the same bytes. Checked against the offsets Emu198x's
+/// own reader computes: `((cyl * HEADS + head) * spt + sector) * 512`.
+#[test]
+fn chs_addresses_agree_with_the_drives_own_arithmetic() {
+    for geometry in [DD, HD] {
+        let spt = geometry.sectors_per_track as u32;
+        for (cyl, head, sector) in [
+            (0u16, 0u8, 0u8),
+            (0, 1, 0),
+            (1, 0, 0),
+            (1, 0, 3),
+            (79, 1, 1),
+        ] {
+            let expected = (cyl as u32 * 2 + head as u32) * spt + sector as u32;
+            assert_eq!(
+                geometry.lba(cyl, head, sector),
+                Some(expected),
+                "{geometry:?} {cyl}/{head}/{sector}"
+            );
+        }
+        assert_eq!(geometry.lba(80, 0, 0), None, "past the last cylinder");
+        assert_eq!(geometry.lba(0, 2, 0), None, "past the last head");
+        assert_eq!(
+            geometry.lba(0, 0, geometry.sectors_per_track),
+            None,
+            "past the last sector"
+        );
+    }
+}
+
+/// A track is one contiguous run of bytes, not a gathering of scattered
+/// sectors. That is what lets an MFM encoder take the slice straight from the
+/// image without copying it — so this asserts identity with the image's own
+/// bytes, not merely equal content.
+#[test]
+fn a_track_is_contiguous_and_matches_its_sectors() {
+    let bytes = master(b"payload", "g", "G").unwrap();
+    let image = Image::open(&bytes).unwrap();
+
+    let track = image.track(5, 1).unwrap();
+    assert_eq!(track.len(), 11 * BSIZE);
+    let first = image.sector(5, 1, 0).unwrap();
+    assert!(
+        std::ptr::eq(track.as_ptr(), first.as_ptr()),
+        "the track starts at its first sector, in place"
+    );
+    for s in 0..11u8 {
+        assert_eq!(
+            &track[s as usize * BSIZE..][..BSIZE],
+            image.sector(5, 1, s).unwrap(),
+            "sector {s} within the track"
+        );
+    }
+}
+
+/// Blocks and CHS addresses reach the same bytes — the observation the whole
+/// two-layer design rests on.
+#[test]
+fn blocks_and_sectors_address_the_same_bytes() {
+    let bytes = master(b"payload", "g", "G").unwrap();
+    let image = Image::open(&bytes).unwrap();
+    for (cyl, head, sector) in [(0u16, 0u8, 0u8), (40, 1, 5), (79, 1, 10)] {
+        let lba = DD.lba(cyl, head, sector).unwrap();
+        assert!(std::ptr::eq(
+            image.sector(cyl, head, sector).unwrap().as_ptr(),
+            image.block(lba).unwrap().as_ptr()
+        ));
+    }
+}
+
+/// The raw layer accepts both geometries and names the shape it found.
+#[test]
+fn image_opens_dd_and_hd() {
+    assert_eq!(Image::open(&vec![0u8; DD.len()]).unwrap().geometry(), DD);
+    assert_eq!(Image::open(&vec![0u8; HD.len()]).unwrap().geometry(), HD);
+}
+
+/// Out-of-range addressing returns a typed error naming the coordinate at
+/// fault, rather than indexing and panicking. This crate is destined for an FFI
+/// boundary where unwinding is undefined behaviour, so this is load-bearing.
+#[test]
+fn out_of_range_addresses_are_errors_not_panics() {
+    let bytes = vec![0u8; DD.len()];
+    let image = Image::open(&bytes).unwrap();
+    assert!(matches!(
+        image.sector(80, 0, 0),
+        Err(Error::OutOfBounds {
+            what: "cylinder",
+            got: 80,
+            limit: 80
+        })
+    ));
+    assert!(matches!(
+        image.sector(0, 2, 0),
+        Err(Error::OutOfBounds { what: "head", .. })
+    ));
+    assert!(matches!(
+        image.sector(0, 0, 11),
+        Err(Error::OutOfBounds { what: "sector", .. })
+    ));
+    assert!(matches!(
+        image.track(80, 0),
+        Err(Error::OutOfBounds {
+            what: "cylinder",
+            ..
+        })
+    ));
+    assert!(matches!(
+        image.block(1760),
+        Err(Error::OutOfBounds {
+            what: "block",
+            got: 1760,
+            limit: 1760
+        })
+    ));
+    // The last valid address of each kind still works.
+    assert!(image.sector(79, 1, 10).is_ok());
+    assert!(image.block(1759).is_ok());
+}
+
+/// The raw layer rejects the same containers the filesystem layer does — the
+/// #1192 guard lives beneath both, so there is one copy of it.
+#[test]
+fn the_raw_layer_names_containers_too() {
+    let err = match Image::open(b"CAPS\0\0\0\x0c") {
+        Err(err) => err,
+        Ok(_) => panic!("expected a rejection"),
+    };
+    assert!(
+        matches!(err, Error::UnsupportedContainer { format: "IPF", .. }),
+        "{err:?}"
+    );
+}
+
+/// A real Amiga writes to floppies. Sectors go in and come back out, in place.
+#[test]
+fn image_mut_round_trips_a_sector() {
+    let mut bytes = ImageMut::blank(DD);
+    assert_eq!(bytes.len(), 901_120);
+    let mut image = ImageMut::open(&mut bytes).unwrap();
+    assert_eq!(image.geometry(), DD);
+
+    let payload: Vec<u8> = (0..BSIZE).map(|i| (i % 251) as u8).collect();
+    image.write_sector(40, 1, 5, &payload).unwrap();
+    assert_eq!(image.as_image().sector(40, 1, 5).unwrap(), &payload[..]);
+
+    // sector_mut reaches the same bytes.
+    image.sector_mut(40, 1, 5).unwrap()[0] = 0xff;
+    assert_eq!(image.as_image().sector(40, 1, 5).unwrap()[0], 0xff);
+
+    // Nothing else moved.
+    let neighbour = DD.lba(40, 1, 6).unwrap();
+    assert!(
+        image
+            .as_image()
+            .block(neighbour)
+            .unwrap()
+            .iter()
+            .all(|&b| b == 0)
+    );
+}
+
+/// A partial sector is a typed error, not a panic. `copy_from_slice` would
+/// panic on a length mismatch, which is exactly the shape of failure this
+/// layer exists to remove.
+#[test]
+fn a_short_sector_write_is_refused() {
+    let mut bytes = ImageMut::blank(DD);
+    let mut image = ImageMut::open(&mut bytes).unwrap();
+    assert!(matches!(
+        image.write_sector(0, 0, 0, &[0u8; 511]),
+        Err(Error::BadSectorLength { got: 511 })
+    ));
+    assert!(matches!(
+        image.write_sector(0, 0, 0, &[]),
+        Err(Error::BadSectorLength { got: 0 })
+    ));
+    assert!(matches!(
+        image.write_sector(80, 0, 0, &[0u8; BSIZE]),
+        Err(Error::OutOfBounds { .. })
+    ));
+}
+
+/// `Image::verify` answers the only two questions this layer can, and a write
+/// really can change the answer to one of them.
+#[test]
+fn raw_verify_catches_a_write_that_disguises_the_container() {
+    let mut bytes = master(b"payload", "g", "G").unwrap();
+    Image::open(&bytes).unwrap().verify().unwrap();
+
+    let mut image = ImageMut::open(&mut bytes).unwrap();
+    let boot = image.sector_mut(0, 0, 0).unwrap();
+    boot[..4].copy_from_slice(b"CAPS");
+    let err = image.as_image().verify().unwrap_err();
+    assert!(
+        matches!(err, Error::UnsupportedContainer { format: "IPF", .. }),
+        "{err:?}"
+    );
+}
+
+/// The two layers are views of one thing: a `Disk` hands back the `Image` it
+/// was built on, and an `Image` can be interpreted as a `Disk`.
+#[test]
+fn disk_and_image_are_two_views_of_one_disk() {
+    let bytes = master(b"payload", "g", "G").unwrap();
+
+    let disk = Disk::open(&bytes).unwrap();
+    assert_eq!(disk.geometry(), DD);
+    let image = disk.image();
+    assert!(std::ptr::eq(image.bytes().as_ptr(), bytes.as_ptr()));
+
+    // The root block the filesystem uses is the block the raw layer addresses.
+    assert_eq!(
+        image.block(DD.root_block()).unwrap(),
+        &bytes[DD.root_block() as usize * BSIZE..][..BSIZE]
+    );
+
+    let again = Disk::from_image(Image::open(&bytes).unwrap()).unwrap();
+    assert_eq!(again.label(), disk.label());
+    assert_eq!(again.read("g").unwrap(), b"payload");
+}
+
+/// A geometry with no known filesystem layout is declined by name rather than
+/// guessed at. Its sectors stay reachable through [`Image`].
+#[test]
+fn the_filesystem_layer_declines_a_shape_it_has_not_verified() {
+    let bytes = vec![0u8; HD.len()];
+    let image = Image::open(&bytes).unwrap();
+    assert_eq!(image.geometry(), HD);
+    assert_eq!(image.sector(79, 1, 21).unwrap().len(), BSIZE);
+
+    let err = match Disk::from_image(image) {
+        Err(err) => err,
+        Ok(_) => panic!("expected a rejection"),
+    };
+    assert!(
+        matches!(
+            err,
+            Error::UnsupportedGeometry {
+                shape: "high-density"
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+/// A `Geometry` is a plain value: anyone can name one, and the arithmetic
+/// holds for shapes this crate has no filesystem support for.
+#[test]
+fn geometry_is_arithmetic_not_a_lookup_table() {
+    let odd = Geometry {
+        cylinders: 40,
+        heads: 1,
+        sectors_per_track: 9,
+    };
+    assert_eq!(odd.blocks(), 360);
+    assert_eq!(odd.len(), 184_320);
+    assert_eq!(odd.root_block(), (360 - 1 + 2) >> 1);
+    assert_eq!(odd.lba(39, 0, 8), Some(359));
+    assert_eq!(odd.lba(0, 1, 0), None);
 }
