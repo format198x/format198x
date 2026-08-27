@@ -118,6 +118,14 @@ pub(crate) fn write_boot_block(img: &mut [u8], fs: FileSystem, bootable: bool) {
     put_u32(img, 4, c);
 }
 
+/// Whether the boot area carries a bootstrap to run.
+///
+/// The first twelve bytes are header fields — DOS type, boot checksum, and the
+/// root-block pointer — so the bootstrap, if there is one, starts at offset 12.
+pub(crate) fn has_boot_code(img: &[u8]) -> bool {
+    img[12..1024].iter().any(|&b| b != 0)
+}
+
 /// AmigaDOS filename hash → slot in a 72-entry table. `h = len; for each byte
 /// h = (h*13 + toupper(c)) & 0x7ff; slot = h % 72`.
 pub(crate) fn name_hash(name: &str) -> usize {

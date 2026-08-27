@@ -217,12 +217,8 @@ impl<'a> Disk<'a> {
     ///
     /// Fast, and stops at the first fault: it answers "is this disk broken".
     pub fn verify(&self) -> Result<(), Error> {
-        let mut probe = self.img[..1024].to_vec();
-        put_u32(&mut probe, 4, 0);
-        if boot_checksum(&probe) != read_u32(self.img, 4) {
-            return Err(Error::Corrupt {
-                what: "boot checksum",
-            });
+        if let Some(what) = self.boot_checksum_fault() {
+            return Err(Error::Corrupt { what });
         }
         let root = self.cblock(self.root_block())?;
         if read_u32(root, 20) != checksum(root, 20) {
@@ -238,6 +234,29 @@ impl<'a> Disk<'a> {
         }
         let mut seen = Vec::new();
         self.verify_dir(self.root_block(), &mut seen)
+    }
+
+    /// Why the boot checksum is wrong, or `None` if it is sound — or absent
+    /// for a good reason.
+    ///
+    /// A disk formatted but never made bootable carries no bootstrap and a zero
+    /// checksum field, and that is the format working as intended rather than a
+    /// fault: the ROM validates the boot block only when it is about to run the
+    /// bootstrap, so a disk with nothing to run has nothing to check. AmigaDOS
+    /// `Format` leaves it this way until `Install` writes the bootstrap, and
+    /// amitools does the same. Treating it as corruption would condemn most
+    /// data disks ever written.
+    ///
+    /// Anything else is checked: a stored checksum that is present, or a
+    /// bootstrap that is present, must agree.
+    fn boot_checksum_fault(&self) -> Option<&'static str> {
+        let stored = read_u32(self.img, 4);
+        if stored == 0 && !has_boot_code(self.img) {
+            return None; // formatted, never installed
+        }
+        let mut probe = self.img[..1024].to_vec();
+        put_u32(&mut probe, 4, 0);
+        (boot_checksum(&probe) != stored).then_some("boot checksum")
     }
 
     /// Blocks on this volume's media.

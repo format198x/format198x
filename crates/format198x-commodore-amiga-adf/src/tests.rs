@@ -805,3 +805,65 @@ fn geometry_is_arithmetic_not_a_lookup_table() {
     assert_eq!(odd.lba(39, 0, 8), Some(359));
     assert_eq!(odd.lba(0, 1, 0), None);
 }
+
+/// A disk formatted but never made bootable carries no bootstrap and a zero
+/// boot-checksum field, and `verify` must accept it.
+///
+/// The ROM validates the boot block only when it is about to run the
+/// bootstrap, so a disk with nothing to run has nothing to check. AmigaDOS
+/// `Format` leaves the field zero until `Install` writes the bootstrap.
+/// amitools does the same — `BootBlock.write` computes a checksum only when
+/// boot code is present and otherwise stores zero — so *every* data disk
+/// xdftool produces looked corrupt to this crate until this was fixed. Verified
+/// against xdftool-formatted DD and HD images, OFS and FFS, none of which this
+/// repository stores.
+#[test]
+fn a_formatted_but_uninstalled_disk_is_not_corrupt() {
+    let mut vol = Volume::new("Data", FileSystem::Ofs);
+    vol.add_file("notes", b"hello\n").unwrap();
+    let mut img = vol.build().unwrap(); // bootable defaults to false
+
+    // Exactly what Format-without-Install leaves behind: no bootstrap, and a
+    // zero checksum field rather than one computed over the empty block.
+    put_u32(&mut img, 4, 0);
+    assert!(
+        img[12..1024].iter().all(|&b| b == 0),
+        "a data disk carries no bootstrap"
+    );
+
+    let disk = Disk::open(&img).unwrap();
+    disk.verify().unwrap();
+    assert_eq!(disk.read("notes").unwrap(), b"hello\n");
+}
+
+/// The leniency is narrow. A disk that *does* carry a bootstrap, or that stores
+/// a checksum at all, still has to have the right one — otherwise zeroing the
+/// field would be a way to hide a corrupt boot block.
+#[test]
+fn a_wrong_boot_checksum_is_still_corrupt() {
+    // A bootable disk with its checksum zeroed: there is a bootstrap, so the
+    // checksum is not optional.
+    let mut img = master(b"payload", "g", "G").unwrap();
+    assert!(img[12..1024].iter().any(|&b| b != 0), "bootstrap present");
+    put_u32(&mut img, 4, 0);
+    let disk = Disk::open(&img).unwrap();
+    assert!(matches!(
+        disk.verify(),
+        Err(Error::Corrupt {
+            what: "boot checksum"
+        })
+    ));
+
+    // A data disk with a stored-but-wrong checksum: still wrong.
+    let mut vol = Volume::new("Data", FileSystem::Ofs);
+    vol.add_file("notes", b"hello\n").unwrap();
+    let mut img = vol.build().unwrap();
+    put_u32(&mut img, 4, 0xdead_beef);
+    let disk = Disk::open(&img).unwrap();
+    assert!(matches!(
+        disk.verify(),
+        Err(Error::Corrupt {
+            what: "boot checksum"
+        })
+    ));
+}
