@@ -53,8 +53,9 @@ bytes ([#26](https://github.com/format198x/format198x/pull/26)).
   accepts that state and checks everything else, including looking for the
   bootstrap in sector 0, where the ROM actually executes from.
 - **A volume could fill only half its disk.** Blocks were allocated upward from
-  the root and never below it, capping an 880 KB floppy near 432 KB. Allocation
-  now goes through the bitmap: 886 KB on DD, 1.78 MB on HD.
+  the root and never below it, capping an 880K floppy near 432K. Allocation now
+  goes through the bitmap, so a single file can reach about 865K of an 880K disk
+  and 1733K of a 1760K HD one — 98% of the media rather than 49%.
 - Out-of-range sector and block addresses return an error instead of indexing
   out of bounds.
 

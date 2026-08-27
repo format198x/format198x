@@ -338,9 +338,10 @@ own stricter output.
   (`WheelDriverAkiko.adf`) carries exactly that filler and was called corrupt.
 - **A volume could fill only half its disk.** The block planner walked upward
   from the root and never revisited what lay below, so an 880 KB DD floppy
-  topped out near 432 KB. Not introduced by HD — it had always been there, and
+  topped out near 432K. Not introduced by HD — it had always been there, and
   HD only made it visible. Fixed by step 3, where allocation moved onto the
-  bitmap: DD now reaches 886 KB and HD 1.78 MB, 98% of the media rather than 49%.
+  bitmap: a single file now reaches about 865K of an 880K DD disk and 1733K of a
+  1760K HD one, 98% of the media rather than 49%.
 
 ### Byte-for-byte output is unchanged
 
