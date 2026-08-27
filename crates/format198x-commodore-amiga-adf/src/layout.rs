@@ -112,10 +112,22 @@ pub(crate) fn write_boot_block(img: &mut [u8], fs: FileSystem, bootable: bool) {
 
 /// Whether the boot area carries a bootstrap to run.
 ///
+/// The ROM reads both boot sectors — 1024 bytes — and checksums all of them,
+/// but it *executes* from offset 12, which is in the first. So a bootstrap
+/// begins in sector 0, and this looks only there. Bytes in sector 1 with
+/// sector 0 empty are not a bootstrap: nothing would ever jump to them.
+///
+/// Real disks do carry such bytes. A formatted-but-not-installed disk whose
+/// second boot sector holds leftover filler is a data disk with litter in a
+/// reserved block, not a disk with a broken bootstrap, and calling it corrupt
+/// would send a reader looking for a fault that is not there.
+///
 /// The first twelve bytes are header fields — DOS type, boot checksum, and the
 /// root-block pointer — so the bootstrap, if there is one, starts at offset 12.
+/// (AmigaDOS Manual / RKM: "Execution starts at location 12 of the sectors that
+/// were read in.")
 pub(crate) fn has_boot_code(img: &[u8]) -> bool {
-    img[12..1024].iter().any(|&b| b != 0)
+    img[12..BSIZE].iter().any(|&b| b != 0)
 }
 
 /// AmigaDOS filename hash → slot in a 72-entry table. `h = len; for each byte

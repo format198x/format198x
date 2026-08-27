@@ -1281,3 +1281,32 @@ fn hd_disks_are_mutable_too() {
     assert_eq!(disk.read("data/small").unwrap(), b"tiny");
     disk.verify().unwrap();
 }
+
+/// Bytes in the *second* boot sector with the first one empty are not a
+/// bootstrap, and must not make a data disk read as corrupt.
+///
+/// The ROM checksums both boot sectors but executes from offset 12, which is in
+/// the first — so nothing would ever jump to code that lives only in the
+/// second. Taken from a real disk: `WheelDriverAkiko.adf` (Minimig-AGA) carries
+/// `DOS\x81`-style filler across the whole of sector 1 while sector 0 holds
+/// nothing but its DOS type and a zero checksum, which this crate called
+/// corrupt until the rule looked at the right sector.
+#[test]
+fn filler_in_the_second_boot_sector_is_not_a_bootstrap() {
+    let mut vol = Volume::new("Filler", FileSystem::Ffs);
+    vol.add_file("notes", b"hello\n").unwrap();
+    let mut img = vol.build().unwrap();
+
+    put_u32(&mut img, 4, 0); // formatted, never installed
+    for (i, b) in img[BSIZE..1024].iter_mut().enumerate() {
+        *b = if i % 4 == 3 { 0x81 } else { b"DOS"[i % 4] };
+    }
+    assert!(
+        img[12..BSIZE].iter().all(|&b| b == 0),
+        "sector 0 stays empty"
+    );
+
+    let disk = Disk::open(&img).unwrap();
+    disk.verify().unwrap();
+    assert_eq!(disk.read("notes").unwrap(), b"hello\n");
+}
