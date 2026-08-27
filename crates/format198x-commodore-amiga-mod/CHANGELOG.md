@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-mod-v0.1.1...format198x-commodore-amiga-mod-v0.1.2) - 2026-08-27
+
+### Other
+
+- track Rust 1.98.0 ([#22](https://github.com/format198x/format198x/pull/22))
+
 ## [0.1.1](https://github.com/format198x/format198x/compare/format-commodore-amiga-mod-v0.1.0...format-commodore-amiga-mod-v0.1.1) - 2026-08-26
 
 ### Other

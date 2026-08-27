@@ -12,7 +12,7 @@ description = "Deterministic, dependency-free Amiga ADF (OFS/FFS) disk images â€
 # published crate whose version communicates *its* changes to consumers, so it
 # bumps only when it changes â€” not on every build198x release. First published
 # at 0.2.0; continues from there.
-version = "0.2.3"
+version = "0.2.4"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

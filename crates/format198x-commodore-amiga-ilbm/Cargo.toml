@@ -3,7 +3,7 @@
 [package]
 name = "format198x-commodore-amiga-ilbm"
 description = "Amiga IFF/ILBM images — decode and encode interleaved bitplanes, uncompressed or ByteRun1, with CAMG screen-mode flags."
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

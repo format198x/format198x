@@ -1,7 +1,7 @@
 [package]
 name = "format198x-commodore-amiga-mod"
 description = "ProTracker MOD modules — parse and write the Amiga tracker format: 31 samples, pattern data, and the order table."
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

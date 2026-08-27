@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.2.3...format198x-commodore-amiga-adf-v0.2.4) - 2026-08-27
+
+### Other
+
+- ADF in two layers: raw sectors beneath the filesystem, and HD on both ([#26](https://github.com/format198x/format198x/pull/26))
+
 ## [0.2.3](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.2.2...format198x-commodore-amiga-adf-v0.2.3) - 2026-08-26
 
 ### Fixed
