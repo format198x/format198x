@@ -212,6 +212,8 @@ impl<'a> Disk<'a> {
     /// plus structural sanity (block pointers in range, no directory cycles).
     ///
     /// Fast, and stops at the first fault: it answers "is this disk broken".
+    /// For "what is wrong with this disk", which reports every fault it can
+    /// find and checks the bitmap's agreement too, use [`check`](Disk::check).
     pub fn verify(&self) -> Result<(), Error> {
         if let Some(what) = self.boot_checksum_fault() {
             return Err(Error::Corrupt { what });
@@ -253,6 +255,16 @@ impl<'a> Disk<'a> {
         let mut probe = self.img[..1024].to_vec();
         put_u32(&mut probe, 4, 0);
         (boot_checksum(&probe) != stored).then_some("boot checksum")
+    }
+
+    /// The image's bytes.
+    pub(crate) fn bytes(&self) -> &'a [u8] {
+        self.img
+    }
+
+    /// Whether the boot block's checksum is wrong, for the exhaustive check.
+    pub(crate) fn boot_fault(&self) -> Option<&'static str> {
+        self.boot_checksum_fault()
     }
 
     /// The name in an entry's header block.

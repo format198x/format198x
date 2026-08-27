@@ -88,6 +88,22 @@ let bytes = disk.read("c/hello")?;
 disk.verify()?;   // every checksum: boot, root, bitmap, headers, data
 ```
 
+## Find out what is wrong with a disk
+
+`verify` stops at the first fault — "is this disk broken". `check` answers
+"what is wrong with it": every fault at once, including whether the bitmap
+agrees with what is actually allocated, which is the classic mark of a disk
+written by something that got the bitmap wrong.
+
+```rust
+let report = Disk::open(&adf)?.check();
+if report.is_sound() {
+    println!("sound");
+} else {
+    println!("{report}");   // one line per fault, with block numbers and paths
+}
+```
+
 ## Notes
 
 - **OFS vs FFS.** OFS (`DOS\0`) is the default and boots on any Kickstart,

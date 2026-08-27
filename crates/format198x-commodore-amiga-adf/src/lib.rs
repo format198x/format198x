@@ -12,9 +12,10 @@
 //!   blank image are all perfectly good [`Image`]s. An emulator's floppy
 //!   peripheral wants this layer and nothing above it.
 //! - **The filesystem layer.** [`Disk`] reads an OFS/FFS volume — `list`,
-//!   `read`, `verify`. [`Volume`] builds one from nothing, and [`DiskMut`]
-//!   changes one that already exists — writing, replacing and deleting files on
-//!   a working disk. This is the layer that knows what a file is.
+//!   `read`, `verify`, and [`check`](Disk::check) for every fault at once.
+//!   [`Volume`] builds one from nothing, and [`DiskMut`] changes one that
+//!   already exists — writing, replacing and deleting files on a working disk.
+//!   This is the layer that knows what a file is.
 //!
 //! The layering is one-directional: [`Disk::open`] opens an [`Image`] and then
 //! interprets it, and [`Disk::image`] hands the raw view back. Nothing at the
@@ -75,14 +76,17 @@
 //! distinguishes it from a flux-level image such as IPF. So the raw layer can
 //! confirm the file is an ADF of a known shape and nothing more; it cannot tell
 //! you a sector is intact, because the format does not record enough to know.
-//! Soundness is a filesystem question, answered by [`Disk::verify`].
+//! Soundness is a filesystem question, answered by [`Disk::verify`] and
+//! [`Disk::check`].
 //!
 //! Pure byte-layout — `core`/`std` only, no dependencies. Internally organised
 //! as small modules — `error`, `fs`, `geometry` and `image` (the raw layer),
 //! `layout` (block constants and primitives), `mutate` ([`DiskMut`], and the
 //! one implementation of placing an entry on a disk), `write`
-//! ([`Volume`]/[`master`]), and `read` ([`Disk`]) — re-exported here.
+//! ([`Volume`]/[`master`]), `read` ([`Disk`]) and `check`
+//! ([`Disk::check`]) — re-exported here.
 
+mod check;
 mod error;
 mod fs;
 mod geometry;
@@ -95,6 +99,7 @@ mod write;
 #[cfg(test)]
 mod tests;
 
+pub use check::{Problem, Report};
 pub use error::Error;
 pub use fs::FileSystem;
 pub use geometry::{DD, Geometry, HD};

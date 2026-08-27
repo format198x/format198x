@@ -136,7 +136,7 @@ impl<'a> Image<'a> {
     /// what distinguishes it from a flux-level image. There is nothing at this
     /// layer to checksum, so nothing here can tell you a sector is sound. For
     /// that, interpret the image as a filesystem and use
-    /// `Disk::check`.
+    /// [`Disk::check`](crate::Disk::check).
     ///
     /// Worth running after writing through [`ImageMut`]: a write is free to put
     /// bytes at offset 0 that make the file look like some other container.

@@ -1310,3 +1310,274 @@ fn filler_in_the_second_boot_sector_is_not_a_bootstrap() {
     disk.verify().unwrap();
     assert_eq!(disk.read("notes").unwrap(), b"hello\n");
 }
+
+// ---------------------------------------------------------------------------
+// Disk::check — every fault, not the first one
+// ---------------------------------------------------------------------------
+
+use crate::check::Problem;
+
+/// A disk this crate wrote is sound, and so is one it mutated.
+#[test]
+fn check_finds_nothing_wrong_with_a_sound_disk() {
+    for geometry in [DD, HD] {
+        for fs in [FileSystem::Ofs, FileSystem::Ffs] {
+            let mut vol = Volume::new("Sound", fs);
+            vol.set_geometry(geometry);
+            vol.add_file("readme", b"top\n").unwrap();
+            vol.add_file("c/big", &vec![3u8; 60_000]).unwrap(); // extension blocks
+            vol.add_file("c/util/deep", b"deep\n").unwrap();
+            vol.add_dir("empty").unwrap();
+            vol.set_bootable(true);
+            let mut img = vol.build().unwrap();
+
+            let report = Disk::open(&img).unwrap().check();
+            assert!(report.is_sound(), "{geometry:?} {fs:?}: {report}");
+
+            // And after being churned.
+            {
+                let mut disk = DiskMut::open(&mut img).unwrap();
+                disk.write_file("scratch", &vec![1u8; 40_000]).unwrap();
+                disk.delete("c/big").unwrap();
+                disk.write_file("c/big", &vec![2u8; 9000]).unwrap();
+            }
+            let report = Disk::open(&img).unwrap().check();
+            assert!(
+                report.is_sound(),
+                "after churn {geometry:?} {fs:?}: {report}"
+            );
+        }
+    }
+}
+
+/// The point of `check` over `verify`: it does not stop at the first fault.
+#[test]
+fn check_reports_every_fault_not_the_first() {
+    let mut vol = Volume::new("Broken", FileSystem::Ofs);
+    for i in 0..6 {
+        vol.add_file(&format!("f{i}"), &vec![i as u8; 1500])
+            .unwrap();
+    }
+    let mut img = vol.build().unwrap();
+
+    // Corrupt several headers at once by flipping a byte in each name field.
+    let headers: Vec<u32> = (0..6)
+        .map(|i| {
+            let root = block(&img, DD.root_block());
+            read_u32(root, 24 + 4 * name_hash(&format!("f{i}")))
+        })
+        .collect();
+    for &h in &headers {
+        img[h as usize * BSIZE + (BSIZE - 70)] ^= 0xff;
+    }
+
+    // verify stops at the first one.
+    let disk = Disk::open(&img).unwrap();
+    assert!(matches!(disk.verify(), Err(Error::Corrupt { .. })));
+
+    // check finds them all, and says which blocks and which files.
+    let report = disk.check();
+    let checksums: Vec<&Problem> = report
+        .problems
+        .iter()
+        .filter(|p| matches!(p, Problem::Checksum { what: "header", .. }))
+        .collect();
+    assert_eq!(checksums.len(), 6, "one per broken header: {report}");
+    for &h in &headers {
+        assert!(
+            report
+                .problems
+                .iter()
+                .any(|p| matches!(p, Problem::Checksum { block, .. } if *block == h)),
+            "block {h} not reported: {report}"
+        );
+    }
+}
+
+/// A bitmap that disagrees with what is actually allocated — the classic mark
+/// of a disk written by something that got the bitmap wrong. The dangerous
+/// direction is a live block offered as free, because the next write lands on
+/// top of it.
+#[test]
+fn check_catches_a_bitmap_that_disagrees() {
+    let mut vol = Volume::new("Bitmap", FileSystem::Ofs);
+    vol.add_file("f", &vec![7u8; 3000]).unwrap();
+    let mut img = vol.build().unwrap();
+    assert!(Disk::open(&img).unwrap().check().is_sound());
+
+    // Offer a block that is genuinely in use as free.
+    let live = DD.first_free(); // the file header
+    let i = (live - RESERVED) as usize;
+    let bm = DD.bitmap_block() as usize * BSIZE;
+    let off = bm + 4 + 4 * (i / 32);
+    let w = read_u32(&img, off) | (1 << (i % 32));
+    put_u32(&mut img, off, w);
+    // Keep the bitmap's own checksum right, so this is the only fault.
+    let c = checksum(block(&img, DD.bitmap_block()), 0);
+    put_u32(block_mut(&mut img, DD.bitmap_block()), 0, c);
+
+    let report = Disk::open(&img).unwrap().check();
+    assert!(
+        report
+            .problems
+            .contains(&Problem::AllocatedButFree { block: live }),
+        "{report}"
+    );
+    // `verify` never looked at this: it checks the bitmap's checksum, not its
+    // agreement with the disk.
+    Disk::open(&img).unwrap().verify().unwrap();
+}
+
+/// A block the bitmap holds back that nothing reaches. Harmless, but it is lost
+/// space and a sign something did not finish cleanly.
+#[test]
+fn check_notices_blocks_held_but_unreachable() {
+    let mut img = Volume::new("Leak", FileSystem::Ofs).build().unwrap();
+    let orphan = DD.first_free() + 5;
+    let i = (orphan - RESERVED) as usize;
+    let bm = DD.bitmap_block() as usize * BSIZE;
+    let off = bm + 4 + 4 * (i / 32);
+    let w = read_u32(&img, off) & !(1 << (i % 32));
+    put_u32(&mut img, off, w);
+    let c = checksum(block(&img, DD.bitmap_block()), 0);
+    put_u32(block_mut(&mut img, DD.bitmap_block()), 0, c);
+
+    let report = Disk::open(&img).unwrap().check();
+    assert!(
+        report
+            .problems
+            .contains(&Problem::UsedButUnreachable { block: orphan }),
+        "{report}"
+    );
+}
+
+/// A pointer naming a block that cannot exist is reported rather than followed.
+#[test]
+fn check_catches_a_pointer_off_the_disk() {
+    let mut vol = Volume::new("Wild", FileSystem::Ofs);
+    vol.add_file("f", b"x").unwrap();
+    let mut img = vol.build().unwrap();
+
+    let root = DD.root_block();
+    let slot = 24 + 4 * name_hash("f");
+    put_u32(block_mut(&mut img, root), slot, 99_999);
+    let c = checksum(block(&img, root), 20);
+    put_u32(block_mut(&mut img, root), 20, c);
+
+    let report = Disk::open(&img).unwrap().check();
+    assert!(
+        report.problems.iter().any(|p| matches!(
+            p,
+            Problem::BlockOutOfRange {
+                block: 99_999,
+                what: "hash chain",
+                ..
+            }
+        )),
+        "{report}"
+    );
+}
+
+/// A hash chain that loops is reported once and abandoned, not followed for
+/// ever. `check` must terminate on any input, however malformed.
+#[test]
+fn check_survives_a_cycle() {
+    let mut vol = Volume::new("Loop", FileSystem::Ofs);
+    vol.add_file("a", b"1").unwrap();
+    vol.add_file("b", b"2").unwrap();
+    let mut img = vol.build().unwrap();
+
+    // Point a's hash_chain back at a.
+    let a = {
+        let root = block(&img, DD.root_block());
+        read_u32(root, 24 + 4 * name_hash("a"))
+    };
+    put_u32(block_mut(&mut img, a), BSIZE - 16, a);
+    let c = checksum(block(&img, a), 20);
+    put_u32(block_mut(&mut img, a), 20, c);
+
+    let report = Disk::open(&img).unwrap().check(); // must return at all
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| matches!(p, Problem::Cycle { .. })),
+        "{report}"
+    );
+}
+
+/// A file whose data blocks hold less than its header claims — a truncated
+/// file that `read` would refuse but `verify`'s checksum pass would not notice.
+#[test]
+fn check_catches_a_file_shorter_than_it_claims() {
+    let mut vol = Volume::new("Short", FileSystem::Ofs);
+    vol.add_file("f", &vec![9u8; 2000]).unwrap();
+    let mut img = vol.build().unwrap();
+
+    let hdr = {
+        let root = block(&img, DD.root_block());
+        read_u32(root, 24 + 4 * name_hash("f"))
+    };
+    put_u32(block_mut(&mut img, hdr), BSIZE - 188, 9_000); // claim far more
+    let c = checksum(block(&img, hdr), 20);
+    put_u32(block_mut(&mut img, hdr), 20, c);
+
+    let report = Disk::open(&img).unwrap().check();
+    assert!(
+        report.problems.iter().any(|p| matches!(
+            p,
+            Problem::ShortFile {
+                declared: 9_000,
+                ..
+            }
+        )),
+        "{report}"
+    );
+}
+
+/// OFS records a checksum in every data block; FFS records none. `check` must
+/// look for exactly what the filesystem in front of it actually carries.
+#[test]
+fn check_reads_ofs_data_checksums_and_expects_none_from_ffs() {
+    for fs in [FileSystem::Ofs, FileSystem::Ffs] {
+        let mut vol = Volume::new("Data", fs);
+        vol.add_file("f", &vec![4u8; 3000]).unwrap();
+        let mut img = vol.build().unwrap();
+
+        // Flip a byte in the file's first data block.
+        let hdr = {
+            let root = block(&img, DD.root_block());
+            read_u32(root, 24 + 4 * name_hash("f"))
+        };
+        let first = read_u32(block(&img, hdr), 16);
+        let target = if first != 0 { first } else { hdr + 1 };
+        img[target as usize * BSIZE + 100] ^= 0xff;
+
+        let report = Disk::open(&img).unwrap().check();
+        let found = report
+            .problems
+            .iter()
+            .any(|p| matches!(p, Problem::Checksum { what: "data", .. }));
+        match fs {
+            FileSystem::Ofs => assert!(found, "OFS data checksum should catch this: {report}"),
+            // Not a gap: an FFS data block records nothing to check against, so
+            // a flipped byte in one is simply undetectable at this layer.
+            FileSystem::Ffs => assert!(!found, "FFS carries no data checksums: {report}"),
+        }
+    }
+}
+
+/// A sound report says so, and prints as much.
+#[test]
+fn a_report_reads_well_either_way() {
+    let img = master(b"payload", "g", "G").unwrap();
+    let report = Disk::open(&img).unwrap().check();
+    assert!(report.is_sound());
+    assert_eq!(report.to_string(), "no problems found");
+
+    let mut broken = img.clone();
+    broken[DD.root_block() as usize * BSIZE + (BSIZE - 70)] ^= 0xff;
+    let report = Disk::open(&broken).unwrap().check();
+    assert!(!report.is_sound());
+    assert!(report.to_string().contains("checksum"), "{report}");
+}
