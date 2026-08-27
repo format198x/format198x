@@ -103,7 +103,7 @@ pub use check::{Problem, Report};
 pub use error::Error;
 pub use fs::FileSystem;
 pub use geometry::{DD, Geometry, HD};
-pub use image::{Image, ImageMut};
+pub use image::{Image, ImageMut, identify_container};
 pub use mutate::DiskMut;
 pub use read::{Disk, Entry, EntryKind};
 pub use write::{Volume, master, master_fs};

@@ -1581,3 +1581,68 @@ fn a_report_reads_well_either_way() {
     assert!(!report.is_sound());
     assert!(report.to_string().contains("checksum"), "{report}");
 }
+
+// ---------------------------------------------------------------------------
+// The surface a raw-sector consumer needs
+// ---------------------------------------------------------------------------
+
+/// Everything Emu198x's floppy peripheral asks of an ADF, in one place.
+///
+/// That crate is a raw-sector reader with its own `Adf` type, kept separately
+/// because this one had no raw layer to offer. This test stands in for its call
+/// sites so the layer beneath cannot drift away from what a real consumer of it
+/// needs: sizing and validation, geometry, whole-image bytes, sector reads and
+/// writes, contiguous track reads, and the container guard.
+#[test]
+fn the_raw_layer_serves_an_emulators_floppy_peripheral() {
+    // Sizing and validation, as constants.
+    const ADF_SIZE_DD: usize = DD.len();
+    const ADF_SIZE_HD: usize = HD.len();
+    assert_eq!(ADF_SIZE_DD, 901_120);
+    assert_eq!(ADF_SIZE_HD, 1_802_240);
+
+    // The container guard, reachable without opening anything.
+    assert_eq!(
+        crate::identify_container(b"CAPS\0\0\0\x0c").map(|(f, _)| f),
+        Some("IPF")
+    );
+    assert!(crate::identify_container(b"DOS\0").is_none());
+
+    let mut bytes = ImageMut::blank(DD);
+
+    // Mutating an image in place, the way a drive writes to a disk.
+    {
+        let mut image = ImageMut::open(&mut bytes).unwrap();
+        assert_eq!(image.geometry().sectors_per_track, 11);
+        let payload: Vec<u8> = (0..BSIZE).map(|i| (i % 256) as u8).collect();
+        image.write_sector(40, 1, 5, &payload).unwrap();
+        assert_eq!(image.bytes().len(), ADF_SIZE_DD);
+    }
+
+    // Reading it back.
+    let image = Image::open(&bytes).unwrap();
+    assert_eq!(image.bytes().len(), ADF_SIZE_DD);
+    assert_eq!(image.sector(40, 1, 5).unwrap()[7], 7);
+    assert_eq!(image.geometry().sectors_per_track, 11);
+
+    // The MFM encoder's path: one contiguous track, handed over without
+    // copying, plus the sector count it needs to encode it.
+    let track: &[u8] = image.track(40, 1).unwrap();
+    assert_eq!(
+        track.len(),
+        image.geometry().sectors_per_track as usize * BSIZE
+    );
+    assert!(std::ptr::eq(
+        track.as_ptr(),
+        image.sector(40, 1, 0).unwrap().as_ptr()
+    ));
+
+    // HD is a geometry, not a separate type — the same calls serve it.
+    let hd = ImageMut::blank(HD);
+    let hd = Image::open(&hd).unwrap();
+    assert_eq!(hd.geometry().sectors_per_track, 22);
+    assert_eq!(hd.track(79, 1).unwrap().len(), 22 * BSIZE);
+
+    // And an out-of-range address is an error, where the old reader panicked.
+    assert!(image.sector(80, 0, 0).is_err());
+}

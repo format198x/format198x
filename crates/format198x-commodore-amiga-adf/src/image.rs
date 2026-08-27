@@ -2,14 +2,29 @@ use crate::error::Error;
 use crate::geometry::Geometry;
 use crate::layout::BSIZE;
 
-/// Identify a non-ADF disk-image container by its leading bytes.
+/// Name the disk-image container a file is in, if it is one this crate does not
+/// read. `None` means nothing was recognised — which includes every real ADF.
+///
+/// [`Image::open`] applies this itself, so most callers never need it. It is
+/// public for the case where the question comes first: a tool sorting a
+/// directory of disk images wants to say what each file *is* before deciding
+/// what to do with it, and an error is an awkward way to ask.
+///
+/// Returns the format's short name and a clause describing it, e.g.
+/// `("IPF", "a flux-level image from the Software Preservation Society")`.
 ///
 /// Deliberately small: these are the containers an Amiga disk actually arrives
 /// in, and naming one wrongly would be worse than not naming it. Anything
 /// unrecognised falls through to the size check, which is the right answer for
 /// a truncated or padded ADF. Short inputs simply match nothing — `starts_with`
 /// on a slice shorter than the magic is `false`, never a panic.
-pub(crate) fn identify_container(img: &[u8]) -> Option<(&'static str, &'static str)> {
+///
+/// ```
+/// use format198x_commodore_amiga_adf::identify_container;
+/// assert_eq!(identify_container(b"CAPS\0\0\0\x0c").unwrap().0, "IPF");
+/// assert!(identify_container(b"DOS\0").is_none());
+/// ```
+pub fn identify_container(img: &[u8]) -> Option<(&'static str, &'static str)> {
     const CANDIDATES: &[(&[u8], &str, &str)] = &[
         (
             b"CAPS",
