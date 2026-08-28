@@ -6,6 +6,10 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
+    /// The image is a valid Amiga floppy but has no AmigaDOS filesystem.
+    /// Bootblock and other non-DOS disks are not damaged; they simply cannot
+    /// be interpreted through [`Disk`](crate::Disk).
+    NotAFilesystem,
     /// A file or volume name is empty, longer than 30 bytes, or not
     /// AmigaDOS-legal (ASCII only).
     InvalidName {
@@ -80,6 +84,7 @@ pub enum Error {
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::NotAFilesystem => write!(f, "ADF has no AmigaDOS filesystem"),
             Self::InvalidName { what, len } => {
                 write!(f, "{what}: must be 1..=30 ASCII bytes (got {len})")
             }

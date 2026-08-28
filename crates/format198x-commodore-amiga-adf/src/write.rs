@@ -171,7 +171,7 @@ impl DirNode {
     /// Get-or-create a child directory named `name`; error if a *file* already
     /// occupies that name.
     fn dir_child(&mut self, name: &str, path: &str) -> Result<&mut DirNode, Error> {
-        if let Some(i) = self.entries.iter().position(|(n, _)| n == name) {
+        if let Some(i) = self.entries.iter().position(|(n, _)| name_eq(n, name)) {
             match &mut self.entries[i].1 {
                 Child::Dir(d) => Ok(d),
                 Child::File { .. } => Err(Error::BadPath {
@@ -191,7 +191,7 @@ impl DirNode {
     }
 
     fn has(&self, name: &str) -> bool {
-        self.entries.iter().any(|(n, _)| n == name)
+        self.entries.iter().any(|(n, _)| name_eq(n, name))
     }
 }
 

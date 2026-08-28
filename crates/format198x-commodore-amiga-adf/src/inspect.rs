@@ -149,7 +149,7 @@ impl Disk<'_> {
                 }
                 collision_hops.push(candidate);
                 let header = self.cblock(candidate)?;
-                if header_name(self.bytes(), candidate) == *name {
+                if name_eq(&header_name(self.bytes(), candidate), name) {
                     break candidate;
                 }
                 candidate = read_u32(header, BSIZE - 16);
