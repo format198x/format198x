@@ -20,16 +20,19 @@ not just the 198x projects.
 | [`format198x-commodore-c64-art-studio`](crates/format198x-commodore-c64-art-studio) | C64 OCP Art Studio hires bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-art-studio.svg)](https://crates.io/crates/format198x-commodore-c64-art-studio) |
 | [`format198x-sinclair-zx-spectrum-scr`](crates/format198x-sinclair-zx-spectrum-scr) | ZX Spectrum SCR screen dumps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-scr.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-scr) |
 | [`format198x-sinclair-zx-spectrum-tap`](crates/format198x-sinclair-zx-spectrum-tap) | ZX Spectrum TAP tape images — read, write, block parity | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-tap.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-tap) |
+| [`format198x-tzx`](crates/format198x-tzx) | Shared TZX/CDT block stream — lossless decode and encode | [![crates.io](https://img.shields.io/crates/v/format198x-tzx.svg)](https://crates.io/crates/format198x-tzx) |
 
 More formats (C64 D64, Amstrad DSK, and others) graduate here from their
 originating projects as they earn a standalone consumer.
 
 ## Conventions
 
-- **Org-prefixed, system-namespaced names** — `format198x-{manufacturer}-{system}-{format}`.
+- **Org-prefixed, normally system-namespaced names** — `format198x-{manufacturer}-{system}-{format}`.
   The `format198x-` prefix says which org publishes the crate, because a registry
   entry has no folder to sit in; the rest is system-namespaced because retro
   extensions collide across machines (ADF, DSK, TAP).
+  A standard genuinely shared byte-for-byte by multiple systems may instead
+  use `format198x-{standard}`; TZX/CDT is the first such case.
 - **Dependency-free** — `core`/`std` only; pure byte-layout code.
 - **Deterministic** — the same inputs always produce identical bytes.
 - **Panic-free reads** — malformed input yields a typed error, never a panic.
