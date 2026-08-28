@@ -5,10 +5,6 @@ on:
     branches:
       - main
 
-concurrency:
-  group: release-plz-${{ github.ref }}
-  cancel-in-progress: false
-
 # No PAT: the default GITHUB_TOKEN drives everything. Opening the release PR
 # needs the org/repo setting "Allow GitHub Actions to create and approve pull
 # requests" enabled (Settings -> Actions -> General). id-token is for the OIDC
@@ -19,8 +15,8 @@ permissions:
   id-token: write
 
 jobs:
-  release-plz:
-    name: Release-plz
+  release:
+    name: Publish merged releases
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -39,54 +35,13 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
-      # Open/update the per-crate "chore: release" PR for new commits.
-      - name: Run release-plz (open/update release PR)
-        uses: release-plz/action@v0.5
-        with:
-          command: release-pr
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Once a release PR is merged, tag the released crate(s). publish = false
-      # in release-plz.toml, so this only bumps/changelogs/tags — the publish
-      # step below does crates.io over OIDC.
-      - name: Run release-plz (tag merged releases)
+      - name: Run release-plz (tag and publish merged releases)
         id: release
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Publish whatever was just released to crates.io over Trusted Publishing.
-      # Gated on releases_created, so the OIDC exchange happens only on an actual
-      # release — never on an ordinary push, and never needing a stored token.
-      - name: Authenticate to crates.io (Trusted Publishing)
-        if: steps.release.outputs.releases_created == 'true'
-        uses: rust-lang/crates-io-auth-action@v1
-        id: auth
-
-      - name: Publish released crates
-        if: steps.release.outputs.releases_created == 'true'
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-          RELEASES: ${{ steps.release.outputs.releases }}
-        run: |
-          set -euo pipefail
-          # Idempotent: a re-run (e.g. after a partial failure where one crate
-          # published and another errored) must not fail on the crate already
-          # on crates.io. Check each version before publishing and skip the ones
-          # that are already there. Matches build198x's check-before-publish.
-          echo "$RELEASES" | jq -r '.[] | "\(.package_name) \(.version)"' \
-            | while read -r pkg version; do
-            if curl -sf -A "198x-ci (steve@stevehill.xyz)" \
-                 "https://crates.io/api/v1/crates/$pkg/$version" >/dev/null; then
-              echo "$pkg $version already on crates.io — skipping."
-            else
-              echo "Publishing $pkg $version"
-              cargo publish -p "$pkg"
-            fi
-          done
 
       # Announce the release in Discord.
       #
@@ -157,3 +112,24 @@ jobs:
           fi
 
           echo "Announced to ${#targets[@]} Discord channel(s)."
+
+  release-pr:
+    name: Prepare the next release
+    needs: release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-plz-pr-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
