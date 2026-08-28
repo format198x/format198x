@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.0...format198x-commodore-amiga-adf-v0.3.1) - 2026-08-28
+
+### Other
+
+- correct a capacity figure that mixed two kinds of kilobyte ([#28](https://github.com/format198x/format198x/pull/28))
+
 ## [0.3.0](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.2.3...format198x-commodore-amiga-adf-v0.3.0) - 2026-08-27
 
 The crate gains the layer beneath the filesystem, and high-density support at
