@@ -1394,6 +1394,178 @@ fn check_reports_every_fault_not_the_first() {
     }
 }
 
+#[test]
+fn inspection_exposes_path_and_both_ofs_file_orders() {
+    let payload = vec![0x5au8; OFS_DATA * 80 + 7];
+    let mut volume = Volume::new("Evidence", FileSystem::Ofs);
+    volume.add_file("c/tools/big", &payload).unwrap();
+    let image = volume.build().unwrap();
+    let disk = Disk::open(&image).unwrap();
+
+    let volume = disk.volume_provenance().unwrap();
+    assert_eq!(volume.root_block, DD.root_block());
+    assert_eq!(volume.bitmap_blocks, vec![DD.bitmap_block()]);
+    assert_eq!(volume.bitmap_valid_flag, u32::MAX);
+
+    let path = disk.inspect("c/tools/big").unwrap();
+    assert_eq!(path.path, "c/tools/big");
+    assert_eq!(path.components.len(), 3);
+    assert_eq!(path.components[0].parent_block, DD.root_block());
+    assert_eq!(path.components[2].name, "big");
+    let file = path.file.expect("big is a file");
+    assert_eq!(file.declared_size as usize, payload.len());
+    assert_eq!(file.extension_blocks.len(), 1);
+    assert_eq!(file.pointer_table_data.len(), 81);
+    assert_eq!(
+        file.pointer_table_data,
+        file.ofs_data_chain
+            .iter()
+            .map(|block| block.block)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        file.ofs_data_chain
+            .iter()
+            .all(|block| block.header_key == file.header_block && block.checksum_valid)
+    );
+}
+
+#[test]
+fn deep_ofs_check_rejects_checksum_preserving_semantic_mutations() {
+    let mut volume = Volume::new("Semantics", FileSystem::Ofs);
+    volume.add_file("file", &vec![0x33; OFS_DATA * 3]).unwrap();
+    let original = volume.build().unwrap();
+    let header = resolve(&original, "file");
+    let mut pointers = Vec::new();
+    collect_ptrs(&original, header, &mut pointers);
+
+    let mut wrong_owner = original.clone();
+    put_u32(block_mut(&mut wrong_owner, pointers[0]), 4, header + 1);
+    let sum = checksum(block(&wrong_owner, pointers[0]), 20);
+    put_u32(block_mut(&mut wrong_owner, pointers[0]), 20, sum);
+    let report = Disk::open(&wrong_owner).unwrap().check();
+    assert!(report.problems.iter().any(|problem| matches!(
+        problem,
+        Problem::InvalidField {
+            block,
+            field: "header key",
+            ..
+        } if *block == pointers[0]
+    )));
+    assert!(Disk::open(&wrong_owner).unwrap().verify().is_err());
+
+    let mut wrong_chain = original.clone();
+    put_u32(block_mut(&mut wrong_chain, pointers[0]), 16, 0);
+    let sum = checksum(block(&wrong_chain, pointers[0]), 20);
+    put_u32(block_mut(&mut wrong_chain, pointers[0]), 20, sum);
+    let report = Disk::open(&wrong_chain).unwrap().check();
+    assert!(report.problems.iter().any(|problem| matches!(
+        problem,
+        Problem::DataChainMismatch { path, .. } if path == "file"
+    )));
+
+    let mut wrong_sequence = original.clone();
+    put_u32(block_mut(&mut wrong_sequence, pointers[1]), 8, 99);
+    let sum = checksum(block(&wrong_sequence, pointers[1]), 20);
+    put_u32(block_mut(&mut wrong_sequence, pointers[1]), 20, sum);
+    let report = Disk::open(&wrong_sequence).unwrap().check();
+    assert!(report.problems.iter().any(|problem| matches!(
+        problem,
+        Problem::InvalidField {
+            block,
+            field: "sequence",
+            ..
+        } if *block == pointers[1]
+    )));
+
+    let mut extended = Volume::new("Extensions", FileSystem::Ofs);
+    extended
+        .add_file("large", &vec![0x44; OFS_DATA * (HT_SIZE + 1)])
+        .unwrap();
+    let mut extended = extended.build().unwrap();
+    let large_header = resolve(&extended, "large");
+    let extension = read_u32(block(&extended, large_header), BSIZE - 8);
+    put_u32(block_mut(&mut extended, extension), 0, T_HEADER);
+    let sum = checksum(block(&extended, extension), 20);
+    put_u32(block_mut(&mut extended, extension), 20, sum);
+    let report = Disk::open(&extended).unwrap().check();
+    assert!(report.problems.iter().any(|problem| matches!(
+        problem,
+        Problem::InvalidField {
+            block,
+            field: "primary type",
+            ..
+        } if *block == extension
+    )));
+
+    let mut duplicate = original;
+    put_u32(
+        block_mut(&mut duplicate, header),
+        24 + 4 * (HT_SIZE - 2),
+        pointers[0],
+    );
+    let sum = checksum(block(&duplicate, header), 20);
+    put_u32(block_mut(&mut duplicate, header), 20, sum);
+    let report = Disk::open(&duplicate).unwrap().check();
+    assert!(report.problems.iter().any(|problem| matches!(
+        problem,
+        Problem::DuplicateOwnership { block, .. } if *block == pointers[0]
+    )));
+}
+
+#[test]
+fn bitmap_location_comes_from_the_root_and_tail_bits_are_closed() {
+    let mut volume = Volume::new("Bitmap", FileSystem::Ofs);
+    volume.add_file("file", b"payload").unwrap();
+    let mut image = volume.build().unwrap();
+    let root = DD.root_block();
+    let old_bitmap = DD.bitmap_block();
+    let new_bitmap = 1000u32;
+
+    let bitmap = block(&image, old_bitmap).to_vec();
+    block_mut(&mut image, new_bitmap).copy_from_slice(&bitmap);
+    put_u32(block_mut(&mut image, root), BSIZE - 196, new_bitmap);
+
+    let set_free = |image: &mut [u8], block_number: u32, free: bool| {
+        let index = (block_number - RESERVED) as usize;
+        let offset = 4 + 4 * (index / 32);
+        let mut word = read_u32(block(image, new_bitmap), offset);
+        if free {
+            word |= 1 << (index % 32);
+        } else {
+            word &= !(1 << (index % 32));
+        }
+        put_u32(block_mut(image, new_bitmap), offset, word);
+    };
+    set_free(&mut image, old_bitmap, true);
+    set_free(&mut image, new_bitmap, false);
+    let bitmap_sum = checksum(block(&image, new_bitmap), 0);
+    put_u32(block_mut(&mut image, new_bitmap), 0, bitmap_sum);
+    let root_sum = checksum(block(&image, root), 20);
+    put_u32(block_mut(&mut image, root), 20, root_sum);
+
+    let disk = Disk::open(&image).unwrap();
+    assert_eq!(
+        disk.volume_provenance().unwrap().bitmap_blocks,
+        [new_bitmap]
+    );
+    assert!(disk.check().is_sound(), "{}", disk.check());
+    disk.verify().unwrap();
+
+    let first_tail = DD.blocks();
+    let index = (first_tail - RESERVED) as usize;
+    let offset = 4 + 4 * (index / 32);
+    let word = read_u32(block(&image, new_bitmap), offset) | (1 << (index % 32));
+    put_u32(block_mut(&mut image, new_bitmap), offset, word);
+    let bitmap_sum = checksum(block(&image, new_bitmap), 0);
+    put_u32(block_mut(&mut image, new_bitmap), 0, bitmap_sum);
+    let report = Disk::open(&image).unwrap().check();
+    assert!(report.problems.iter().any(|problem| matches!(
+        problem,
+        Problem::BitmapTailFree { block, .. } if *block == first_tail
+    )));
+}
+
 /// A bitmap that disagrees with what is actually allocated — the classic mark
 /// of a disk written by something that got the bitmap wrong. The dangerous
 /// direction is a live block offered as free, because the next write lands on
@@ -1423,9 +1595,8 @@ fn check_catches_a_bitmap_that_disagrees() {
             .contains(&Problem::AllocatedButFree { block: live }),
         "{report}"
     );
-    // `verify` never looked at this: it checks the bitmap's checksum, not its
-    // agreement with the disk.
-    Disk::open(&img).unwrap().verify().unwrap();
+    // Deep verification now includes the independent reachability oracle.
+    assert!(Disk::open(&img).unwrap().verify().is_err());
 }
 
 /// A block the bitmap holds back that nothing reaches. Harmless, but it is lost
