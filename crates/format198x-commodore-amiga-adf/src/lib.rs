@@ -41,7 +41,9 @@
 //! `.adf` deliverables byte-reproducible.
 //!
 //! [`Disk`] is the read side: open an image, `list` directories, `read` files,
-//! and `verify` every checksum — panic-free on malformed input.
+//! [`inspect`](Disk::inspect) their on-disk provenance, and `verify` checksums,
+//! structure, ownership, data chains, and bitmap agreement — panic-free on
+//! malformed input.
 //!
 //! **General within the floppy shape** — any tree of files and directories,
 //! bootable or a plain data disk. It is correct for *any* input: a file of any
@@ -91,6 +93,7 @@ mod error;
 mod fs;
 mod geometry;
 mod image;
+mod inspect;
 mod layout;
 mod mutate;
 mod read;
@@ -104,6 +107,9 @@ pub use error::Error;
 pub use fs::FileSystem;
 pub use geometry::{DD, Geometry, HD};
 pub use image::{Image, ImageMut, identify_container};
+pub use inspect::{
+    ComponentProvenance, FileProvenance, OfsDataProvenance, PathProvenance, VolumeProvenance,
+};
 pub use mutate::DiskMut;
 pub use read::{Disk, Entry, EntryKind};
 pub use write::{Volume, master, master_fs};

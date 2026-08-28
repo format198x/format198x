@@ -85,15 +85,32 @@ for entry in disk.list("c")? {
     println!("{} ({} bytes)", entry.name, entry.size);
 }
 let bytes = disk.read("c/hello")?;
-disk.verify()?;   // every checksum: boot, root, bitmap, headers, data
+disk.verify()?;   // checksums, structure, ownership, data chains, and bitmap
+```
+
+## Inspect where a file came from
+
+`inspect` exposes the on-disk evidence behind a resolved path: every hash-table
+hop, the file header and extension blocks, the pointer-table order, and — for
+OFS — the independently linked data-block chain.
+
+```rust
+let provenance = Disk::open(&adf)?.inspect("S/Startup-Sequence")?;
+for component in &provenance.components {
+    println!("{}: header block {}", component.name, component.header_block);
+}
+if let Some(file) = provenance.file {
+    println!("pointer-table order: {:?}", file.pointer_table_data);
+    println!("OFS linked chain: {:?}", file.ofs_data_chain);
+}
 ```
 
 ## Find out what is wrong with a disk
 
-`verify` stops at the first fault — "is this disk broken". `check` answers
-"what is wrong with it": every fault at once, including whether the bitmap
-agrees with what is actually allocated, which is the classic mark of a disk
-written by something that got the bitmap wrong.
+`verify` answers "is this disk broken?". `check` answers "what is wrong with
+it?": every fault at once, including invalid structural fields, conflicting
+ownership, disagreement between OFS's two file-order representations, and
+whether the root-declared bitmap agrees with what is actually allocated.
 
 ```rust
 let report = Disk::open(&adf)?.check();

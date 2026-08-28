@@ -224,14 +224,29 @@ impl<'a> Disk<'a> {
                 what: "root checksum",
             });
         }
-        let bm = self.cblock(self.geometry().bitmap_block())?;
-        if read_u32(bm, 0) != checksum(bm, 0) {
+        let provenance = self.volume_provenance()?;
+        if provenance.bitmap_valid_flag != u32::MAX || provenance.bitmap_blocks.is_empty() {
             return Err(Error::Corrupt {
-                what: "bitmap checksum",
+                what: "bitmap references",
             });
         }
+        for bitmap in provenance.bitmap_blocks {
+            let bytes = self.cblock(bitmap)?;
+            if read_u32(bytes, 0) != checksum(bytes, 0) {
+                return Err(Error::Corrupt {
+                    what: "bitmap checksum",
+                });
+            }
+        }
         let mut seen = Vec::new();
-        self.verify_dir(self.root_block(), &mut seen)
+        self.verify_dir(self.root_block(), &mut seen)?;
+        if self.check().is_sound() {
+            Ok(())
+        } else {
+            Err(Error::Corrupt {
+                what: "filesystem structure",
+            })
+        }
     }
 
     /// Why the boot checksum is wrong, or `None` if it is sound — or absent
@@ -274,12 +289,12 @@ impl<'a> Disk<'a> {
     }
 
     /// Blocks on this volume's media.
-    fn blocks(&self) -> u32 {
+    pub(crate) fn blocks(&self) -> u32 {
         self.geometry().blocks()
     }
 
     /// Where the root block sits on this volume's media.
-    fn root_block(&self) -> u32 {
+    pub(crate) fn root_block(&self) -> u32 {
         self.geometry().root_block()
     }
 
