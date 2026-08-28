@@ -1,0 +1,13 @@
+[package]
+name = "format198x-tzx"
+description = "TZX/CDT tape images — lossless, dependency-free block-stream decoding and encoding."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["tzx", "cdt", "tape", "zx-spectrum", "amstrad-cpc"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
