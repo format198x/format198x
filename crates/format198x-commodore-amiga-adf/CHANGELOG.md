@@ -16,9 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.0...format198x-commodore-amiga-adf-v0.3.1) - 2026-08-28
 
-### Other
+Documentation only. No code changed, and an image built by 0.3.1 is
+byte-identical to one built by 0.3.0.
 
-- correct a capacity figure that mixed two kinds of kilobyte ([#28](https://github.com/format198x/format198x/pull/28))
+### Fixed
+
+- **A capacity figure in the 0.3.0 notes mixed two kinds of kilobyte**,
+  claiming a volume could reach 886 KB on an 880 KB floppy — which cannot be
+  true. The disk was named in binary units, as the format always is, and the
+  file in decimal, so the smaller number read as the larger. Restated in the
+  units the format is described in: a single file reaches about **865K of an
+  880K disk**, and **1733K of a 1760K** HD one. The percentages the sentence
+  was actually making — 98% against 49% — were right throughout
+  ([#28](https://github.com/format198x/format198x/pull/28)).
 
 ## [0.3.0](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.2.3...format198x-commodore-amiga-adf-v0.3.0) - 2026-08-27
 
