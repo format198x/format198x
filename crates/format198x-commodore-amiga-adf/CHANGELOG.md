@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.1...format198x-commodore-amiga-adf-v0.3.2) - 2026-08-28
+
+### Added
+
+- *(adf)* expose provenance and verify filesystem semantics
+
 ## [0.3.1](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.0...format198x-commodore-amiga-adf-v0.3.1) - 2026-08-28
 
 Documentation only. No code changed, and an image built by 0.3.1 is
