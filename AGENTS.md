@@ -38,6 +38,16 @@ and [`../../syntheses/`](../../syntheses/) — and to the artefacts themselves.
 Cite upward when the layout is not obvious, and prefer a round-trip test against
 a real image over a restatement of a secondary source.
 
+## Decisions
+
+Per-crate design rationale lives in [`decisions/`](decisions/) — why a crate is
+written the way it is, and the constraints a change must not break. A crate that
+graduates here brings its design record with it; the originating project keeps
+only the decision that made the format *its* concern in the first place.
+
+Cross-project rules stay at the umbrella. Graduation, naming and releasing are
+linked above, not restated here.
+
 ## Releasing
 
 Published crates follow
