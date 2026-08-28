@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "format198x-commodore-amiga-adf"
-version = "0.3.2"
+version = "0.3.3"
 
 [[package]]
 name = "format198x-commodore-amiga-ilbm"
