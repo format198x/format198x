@@ -143,6 +143,17 @@ pub(crate) fn name_hash(name: &str) -> usize {
     (h as usize) % HT_SIZE
 }
 
+/// AmigaDOS pathname equality: deterministic byte-oriented ASCII case folding.
+/// Names are validated as ASCII on write; locale and Unicode folding are not
+/// part of the on-disk filesystem contract.
+pub(crate) fn name_eq(left: &str, right: &str) -> bool {
+    left.len() == right.len()
+        && left
+            .bytes()
+            .zip(right.bytes())
+            .all(|(a, b)| a.eq_ignore_ascii_case(&b))
+}
+
 /// Write a `name_len`-prefixed AmigaDOS name into `block` ending at its tail
 /// (the name field ends 80 bytes from the block end: len byte at `BSIZE-80`).
 pub(crate) fn put_name(block: &mut [u8], name: &str) {

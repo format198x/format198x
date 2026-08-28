@@ -94,9 +94,7 @@ impl<'a> Disk<'a> {
         let geometry = image.geometry();
         let img = image.bytes();
         if &img[0..3] != b"DOS" {
-            return Err(Error::Corrupt {
-                what: "boot-block signature",
-            });
+            return Err(Error::NotAFilesystem);
         }
         let fs = match img[3] {
             0 => FileSystem::Ofs,
@@ -320,7 +318,7 @@ impl<'a> Disk<'a> {
         let mut guard = 0;
         while e != 0 {
             let eb = self.cblock(e)?;
-            if header_name(self.img, e) == name {
+            if name_eq(&header_name(self.img, e), name) {
                 return Ok(Some(e));
             }
             e = read_u32(eb, BSIZE - 16);

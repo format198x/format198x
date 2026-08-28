@@ -395,6 +395,45 @@ fn disk_reads_back_a_volume() {
 }
 
 #[test]
+fn paths_use_amigados_case_insensitive_matching_and_preserve_spelling() {
+    let mut vol = Volume::new("Case", FileSystem::Ofs);
+    vol.add_file("S/Startup-Sequence", b"game\n").unwrap();
+    vol.add_file("Docs/MixedCase", b"text").unwrap();
+    let img = vol.build().unwrap();
+    let disk = Disk::open(&img).unwrap();
+
+    assert_eq!(disk.read("s/startup-sequence").unwrap(), b"game\n");
+    assert_eq!(disk.read("DOCS/mIxEdCaSe").unwrap(), b"text");
+    assert_eq!(disk.list("s").unwrap()[0].name, "Startup-Sequence");
+    let evidence = disk.inspect("docs/MIXEDCASE").unwrap();
+    assert_eq!(evidence.path, "docs/MIXEDCASE");
+}
+
+#[test]
+fn volume_rejects_case_only_duplicate_names_and_intermediate_directories() {
+    let mut vol = Volume::new("Case", FileSystem::Ofs);
+    vol.add_file("ReadMe", b"one").unwrap();
+    assert!(matches!(
+        vol.add_file("readme", b"two"),
+        Err(Error::BadPath { .. })
+    ));
+
+    let mut nested = Volume::new("Case", FileSystem::Ofs);
+    nested.add_file("Docs/one", b"one").unwrap();
+    nested.add_file("docs/two", b"two").unwrap();
+    let img = nested.build().unwrap();
+    let disk = Disk::open(&img).unwrap();
+    assert_eq!(disk.list("").unwrap().len(), 1);
+    assert_eq!(disk.list("DOCS").unwrap().len(), 2);
+}
+
+#[test]
+fn a_non_dos_disk_is_not_reported_as_corruption() {
+    let image = vec![0u8; DD.len()];
+    assert!(matches!(Disk::open(&image), Err(Error::NotAFilesystem)));
+}
+
+#[test]
 fn disk_round_trips_both_filesystems() {
     let exe: Vec<u8> = (0..5000).map(|i| (i % 251) as u8).collect();
     for fs in [FileSystem::Ofs, FileSystem::Ffs] {
@@ -414,7 +453,7 @@ fn disk_rejects_garbage_and_bad_paths() {
         Err(Error::Corrupt { .. })
     )); // wrong size
     let blank = vec![0u8; DD.blocks() as usize * BSIZE];
-    assert!(matches!(Disk::open(&blank), Err(Error::Corrupt { .. }))); // no DOS sig
+    assert!(matches!(Disk::open(&blank), Err(Error::NotAFilesystem))); // no DOS sig
 
     let img = master(b"hello world payload", "g", "G").unwrap();
     let disk = Disk::open(&img).unwrap();

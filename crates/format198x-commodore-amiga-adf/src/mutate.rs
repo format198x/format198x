@@ -353,7 +353,7 @@ impl<'a> DiskMut<'a> {
                     path: name.to_owned(),
                 });
             }
-            if disk.entry_name(cur)? == name {
+            if name_eq(&disk.entry_name(cur)?, name) {
                 break cur;
             }
             prev = Some(cur);
