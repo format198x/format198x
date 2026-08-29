@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.2...format198x-commodore-amiga-adf-v0.3.3) - 2026-08-28
+
+### Fixed
+
+- *(adf)* use typed filesystem and case-insensitive paths ([#42](https://github.com/format198x/format198x/pull/42))
+
 ## [0.3.2](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.1...format198x-commodore-amiga-adf-v0.3.2) - 2026-08-28
 
 ### Added
