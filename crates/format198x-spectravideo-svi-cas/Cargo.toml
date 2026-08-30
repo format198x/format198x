@@ -1,0 +1,13 @@
+[package]
+name = "format198x-spectravideo-svi-cas"
+description = "Spectravideo SVI-318/328 CAS tape images — dependency-free block decoding and encoding."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["spectravideo", "svi-328", "cas", "cassette", "tape"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
