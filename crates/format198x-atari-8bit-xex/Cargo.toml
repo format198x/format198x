@@ -1,0 +1,13 @@
+[package]
+name = "format198x-atari-8bit-xex"
+description = "Atari 8-bit XEX segmented executable parser"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["atari", "xex", "executable", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
