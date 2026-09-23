@@ -5,7 +5,7 @@
 //! not stored — a loader reconstructs them from the standard ROM pulse rules.
 //!
 //! Layout facts are authored from
-//! `syntheses/zx-spectrum/tape-loading-format.md` (§ 2 the block format, § 4
+//! `syntheses/sinclair-zx-spectrum/tape-loading-format.md` (§ 2 the block format, § 4
 //! the file format; cross-checked there against the Sinclair BASIC manual and
 //! fuse's `libspectrum`):
 //!

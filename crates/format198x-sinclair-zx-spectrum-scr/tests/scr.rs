@@ -52,7 +52,7 @@ fn round_trip_is_lossless_in_both_directions() {
 }
 
 /// Interleave spot checks from
-/// `syntheses/zx-spectrum/screen-and-attribute-memory.md` § 3:
+/// `syntheses/sinclair-zx-spectrum/screen-and-attribute-memory.md` § 3:
 /// offset = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2) | c.
 #[test]
 fn bitmap_interleave_matches_documented_offsets() {

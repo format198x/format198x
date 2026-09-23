@@ -53,7 +53,7 @@ it.
 | parity | XOR of the flag and every payload byte |
 | header payload | 17 bytes: kind, 10-byte space-padded name, next block's length, two kind-dependent parameters |
 
-Layout facts are authored from `syntheses/zx-spectrum/tape-loading-format.md`
+Layout facts are authored from `syntheses/sinclair-zx-spectrum/tape-loading-format.md`
 (§ 2 and § 4), which cross-checks the Sinclair BASIC manual against fuse's
 `libspectrum`. The tests hold a real tape written by SjASMPlus 1.21.0 and
 require this crate to reproduce it byte for byte — a codec can round-trip its

@@ -5,7 +5,7 @@
 //! native memory order ($4000–$5AFF on hardware ⇒ file offset 0–$1AFF here).
 //!
 //! Layout facts are authored from
-//! `syntheses/zx-spectrum/screen-and-attribute-memory.md` (silicon canon:
+//! `syntheses/sinclair-zx-spectrum/screen-and-attribute-memory.md` (silicon canon:
 //! Chris Smith, *The ZX Spectrum ULA*, Chs 12 + 15):
 //!
 //! - The bitmap is 256×192 pixels, 1 bit per pixel, MSB leftmost: the pixel
