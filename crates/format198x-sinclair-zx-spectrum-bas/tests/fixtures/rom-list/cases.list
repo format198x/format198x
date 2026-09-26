@@ -1,0 +1,85 @@
+   1 STOP
+  10 PRINT CHR$ (147)
+  20 PRINT a;INKEY$;RND
+  30 PRINT PI
+  40 IF a<=b THEN
+  50 IF x<=y THEN STOP
+  60 PRINT RND*PI;INKEY$+"x";PI/2
+  70 PRINT FN a(1);FN b$()
+  80 PRINT POINT (1,2);POINT (3,4)
+  90 PRINT SCREEN$ (1,2);ATTR (3,4)
+ 100 PRINT AT 1,2;TAB 3;"x"
+ 110 PRINT VAL$ "a$";CODE "A";VAL "1"
+ 120 PRINT LEN "abc";SIN 1;COS 2;TAN 3
+ 130 PRINT ASN 1;ACS 1;ATN 1;LN 2;EXP 1
+ 140 PRINT INT 1.5;SQR 4;SGN -3;ABS -2
+ 150 PRINT PEEK 23606;IN 254;USR 0
+ 160 PRINT STR$ 12;CHR$ 65;NOT 0;BIN 101
+ 170 PRINT a OR b;1 AND 2;(a) AND (b);(c) OR (d)
+ 180 PRINT a<=b;a>=b;a<>b;a<b;a>b;a=b
+ 190 SAVE "x" LINE 10: LOAD "y"
+ 200 IF a THEN PRINT a
+ 210 FOR i=1 TO 9 STEP 2: NEXT i
+ 220 FOR i=1 TO 9 STEP 2
+ 230 CAT 1: FORMAT "m";1: MOVE "a","b"
+ 240 ERASE 1;"x": OPEN #4,"s": CLOSE #4
+ 250 MERGE "a": VERIFY "b": BEEP 1,2
+ 260 CIRCLE 1,2,3: INK 1: PAPER 2
+ 270 FLASH 1: BRIGHT 0: INVERSE 1: OVER 0
+ 280 PRINT INK 2; PAPER 1; FLASH 0; BRIGHT 1; INVERSE 0; OVER 0;"x"
+ 290 OUT 254,7: LPRINT "a": LLIST
+ 300 STOP : NEW : COPY : CLS
+ 310 READ a: DATA 1,2: RESTORE 10
+ 320 BORDER 0: CONTINUE : DIM a(3)
+ 330 GO TO 10: GO SUB 20: INPUT a
+ 340 LIST 10: LET a=1: PAUSE 50
+ 350 POKE 23606,0: PLOT 1,2: DRAW 3,4
+ 360 RUN 10: RANDOMIZE 1: CLEAR 32767
+ 370 RETURN
+ 380 PRINT "PRINT GO TO THEN";"LET a=1"
+ 390 LET a$="THEN": PRINT "REM ";a$
+ 400 REM a REM with PRINT and GO TO
+ 410 REM  two  spaces
+ 420 REM
+1000 PRINT "one thousand"
+2010 BORDER 0: PAPER 0: INK 7: CLS
+2020 CLS : PRINT "Thanks for playing!"
+2030 LET p = INT (RND* 4) + 1
+2040 FOR r = 2 TO 9: PRINT AT r, 1; "       1      ": NEXT r
+2050 IF d$ = "E" OR d$ = "e" THEN LET dest = e(rm)
+2060 IF alt = 0 AND spd <= 2 THEN PRINT AT 10, 8; "PERFECT LANDING!": STOP
+2070 IF b(m) <> 0 THEN PRINT AT 18, 4; "Already taken!": PAUSE 30: GO TO 120
+2080 FOR u = 0 TO 3: FOR j = 0 TO 7: READ b: POKE USR CHR$ (144 + u) + j, b: NEXT j: NEXT u
+2090 FOR j = 0 TO 7: READ b: POKE USR "A" + j, b: NEXT j
+2100 FOR i = 1 TO 4: LET g(i) = VAL g$(i): NEXT i
+2110 FOR i = 1 TO LEN d$: PRINT d$(i); " ";: NEXT i
+2120 FOR i = 1 TO 20: PLOT INT (RND* 256), INT (RND* 100) + 60: NEXT i
+2130 FOR j = 1 TO fuel: PRINT INK 4; CHR$ 143;: NEXT j
+2140 CIRCLE 128, 44, 10: CIRCLE 128, 44, 6: PLOT 128, 44: DRAW 7, 7: PLOT 128, 44: DRAW 0, 10
+2150 DIM n(20): DIM s(20): DIM e(20): DIM w(20)
+2160 IF g <> k(n) THEN PRINT AT 14,0;"The answer was ";k(n): BEEP 0.3,-5
+2170 IF feed < 0 OR feed > grain THEN BEEP 0.1, -5: GO TO 260
+2180 IF c > 5 AND c <= 10 THEN PRINT "Not bad!"
+2190 IF b(n) = 2 THEN INK 2: CIRCLE cx, cy, 8: INK 7
+2200 DATA "In what year was the Moon landing?","1959","1965","1969","1972"
+2210 DATA 24,60,126,255,255,24,60,0
+2220 INPUT "Your guess: "; g
+2230 BEEP 0.3, -5: BEEP 0.3, -10: PAUSE 0: STOP
+2240 REM Draw face-down card at cx, cy
+2250 PRINT "ALT: "; alt; "  SPD: "; spd; "  FUEL: "; fuel
+2260 LET a$ = "*** LOCKSMITH ***": LET y = 6: GO SUB 9000
+2270 FOR i = 0 TO 31: PRINT " ";: NEXT i
+2280 IF q$ = "W" THEN LET g(r,c) = 1: PRINT AT sr+r-1, sc+c-1; PAPER 1; INK 0; " "
+2290 PRINT AT 1, 2; "Found: "; hits; "/3  Guesses: "; guesses; "  "
+2300 IF r = 6 THEN PRINT "  DEFINITELY NOT"
+2310 PAUSE 50: BEEP 0.1, 24
+2320 FOR a = 1 TO 8: FOR b = 1 TO 8
+2330 LET t = t + 1
+2340 NEXT i
+2350 IF guesses > 30 THEN GO TO 720
+2360 PAPER 7: INK 0
+2370 FOR i = 1 TO 4: LET c(i) = INT (RND* 6) + 1: NEXT i
+2380 IF b(9) = 0 THEN LET mv = 9: GO TO 850
+2390 PRINT AT 11, 2; "Population: "; pop; "  Grain: "; grain
+2400 IF d$(i) <> "_" THEN INK 4: PRINT d$(i); " ";
+9999 REM end

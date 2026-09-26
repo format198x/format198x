@@ -16,7 +16,9 @@
 //! Each line must start with a line number (1–9999).
 
 pub mod ast;
+mod list;
 mod listing;
+pub use list::{KEYWORD_NAMES, list, list_line};
 mod parser;
 pub use listing::{LexLine, Piece, PieceKind, lex_line, tokenise_listing};
 mod serialize;
