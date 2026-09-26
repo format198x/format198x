@@ -1,5 +1,6 @@
-//! LIST as the C64 ROM prints a stored program (LIST at $A69C, and its
-//! token printer at $A717, per Mapping the Commodore 64): outside quotes each token byte (0x80–0xCB) prints as its keyword
+//! LIST as the C64 ROM prints a stored program, per the disassembly in The
+//! Anatomy of the Commodore 64 ($A717–$A722, with the quote flag toggled at
+//! $A6F6): outside quotes each token byte (0x80–0xCB) prints as its keyword
 //! text; inside quotes, and for every other byte, the stored character is
 //! printed as it is. There is no ROM leading/trailing space logic to model
 //! here — unlike the Spectrum, the C64 stores exactly what LIST prints.

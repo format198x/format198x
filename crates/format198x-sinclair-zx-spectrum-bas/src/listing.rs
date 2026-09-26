@@ -101,8 +101,9 @@ pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
 ///
 /// Blank lines are skipped; every other line, including one starting `#`,
 /// must start with a line number. Keyword names ending in a letter or `$`
-/// need word boundaries; strings and REM text stay literal. Numeric spellings are retained with their hidden five-byte values appended.
-/// This bounded editor route excludes DEF FN (which needs parameter markers).
+/// need word boundaries; strings and REM text stay literal. Numeric
+/// spellings are retained with their hidden five-byte values appended. This
+/// bounded editor route excludes DEF FN (which needs parameter markers).
 ///
 /// # Errors
 /// Returns an error for unsupported characters, malformed numbers/strings,
