@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(format198x-sinclair-zx-spectrum-bas)* give every out-of-range line number one message
+- **Every out-of-range line number gets one message**
+  ([#53](https://github.com/format198x/format198x/pull/53)). A line number
+  outside 1 to 9999 was reported two different ways depending on how many
+  digits it had; it is now always "line number must be 1 to 9999".
 
 ## [0.1.2](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-bas-v0.1.1...format198x-sinclair-zx-spectrum-bas-v0.1.2) - 2026-09-26
 
