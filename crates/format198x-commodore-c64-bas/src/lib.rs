@@ -309,9 +309,14 @@ fn lex_body(source: &str) -> Vec<Piece> {
 /// The keyword starting at `text`, if any. Like the C64's own cruncher, this
 /// matches anywhere, with no word boundary: `GOTO10` and `FORI=1TO10`
 /// tokenise, and `SCORE` stores `S`, `C`, the `OR` token and `E`. `?` is
-/// stored as the character, as petcat stores it; the C64's cruncher stores
-/// the PRINT token for it instead ($A59C).
+/// the PRINT token, as the cruncher substitutes it ($A59C). The caller keeps
+/// strings, REM text and DATA values away from here, and the ROM does the
+/// same: its DATA test ($A598) comes before the `?` substitution, so a `?`
+/// in a DATA value stays a character.
 fn match_keyword(text: &[u8]) -> Option<(u8, usize)> {
+    if text.first() == Some(&b'?') {
+        return Some((0x99, 1));
+    }
     KEYWORDS
         .iter()
         .find(|(keyword, _)| {
@@ -401,6 +406,28 @@ mod tests {
             body("70 LET PRINTER=1"),
             [0x88, b' ', 0x99, b'E', b'R', 0xB2, b'1']
         );
+    }
+
+    #[test]
+    fn question_mark_is_the_print_token_as_the_c64_stores_it() {
+        // The ROM's cruncher substitutes PRINT for `?` ($A59C); petcat
+        // stores 0x3F instead, and the ROM is followed here.
+        assert_eq!(body("10 ?A"), [0x99, b'A']);
+        assert_eq!(
+            body("10 ?\"?\":REM ?"),
+            [&[0x99, b'"', b'?', b'"', b':', 0x8F][..], b" ?"].concat()
+        );
+        // After DATA the ROM stores everything literally up to a colon,
+        // `?` included, then tokenises it again.
+        assert_eq!(
+            body("10 DATA ?:?"),
+            [&[0x83][..], b" ?:", &[0x99][..]].concat()
+        );
+        let line = lex_line("10 ?A").expect("lex");
+        assert_eq!(line.pieces[0].kind, PieceKind::Keyword(0x99));
+        assert_eq!(line.pieces[0].text, "?");
+        let prg = tokenise("10 ?A\n20 PRINT\"?\"").expect("t").bytes;
+        assert_eq!(list(&prg).expect("list"), ["10 PRINTA", "20 PRINT\"?\""]);
     }
 
     #[test]
