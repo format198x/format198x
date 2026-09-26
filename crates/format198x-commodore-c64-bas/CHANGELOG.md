@@ -11,8 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(format198x-commodore-c64-bas)* accept line 0 and give every out-of-range line number one message
-- *(format198x-commodore-c64-bas)* refuse a program larger than BASIC memory
+- **A program too big for BASIC memory is now an error**
+  ([#53](https://github.com/format198x/format198x/pull/53)). BASIC memory on
+  a stock C64 runs from `$0801` to `$9FFF`, 38,911 bytes with the end marker,
+  because the BASIC ROM sits at `$A000`. A larger program was written without
+  complaint and could not be LISTed or RUN; it is now refused with its size
+  and the limit.
+- **Line 0 is accepted, and every out-of-range line number gets one message**
+  ([#55](https://github.com/format198x/format198x/pull/55)). BASIC V2 takes 0
+  to 63999: typed into the C64 (VICE x64sc), lines 0 and 63999 are stored,
+  listed and run, and 64000 and above give `?SYNTAX ERROR`. The crate refused
+  line 0 and gave different messages for a numeral that was too big and one
+  too long to parse; it now reports `line number N out of range (0-63999)`.
 
 ## [0.1.0](https://github.com/format198x/format198x/releases/tag/format198x-commodore-c64-bas-v0.1.0) - 2026-09-26
 
