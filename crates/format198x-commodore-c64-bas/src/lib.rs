@@ -24,35 +24,56 @@ pub struct BasicProgram {
 }
 
 /// One stored piece of a line body, with where it came from in the source.
+///
+/// Concatenating the `bytes` of a line's pieces gives the stored line body,
+/// without its link, line number or closing `0x00`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Piece {
+    /// What sort of text this piece is.
     pub kind: PieceKind,
     /// Bytes this piece stores (a token byte, or one or more PETSCII bytes).
     pub bytes: Vec<u8>,
-    /// 0-based byte offset of the piece in the body text passed to `lex_body`.
+    /// 0-based byte offset of the piece within the line body (the text after
+    /// the line number and the one space that may follow it). Add
+    /// [`LexLine::body_column`] for the offset within the source line.
     pub column: usize,
-    /// The source text the piece came from.
+    /// The source text the piece came from, as typed (any case).
     pub text: String,
 }
 
+/// What sort of text a [`Piece`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PieceKind {
+    /// A keyword stored as one token byte, which this carries: 0x80 (END)
+    /// to 0xCB (GO), including the operators `+ - * / ^ > = <` (0xAA–0xB3).
     Keyword(u8),
+    /// A run of letters, with any digits or `$` that follow, not matched as
+    /// a keyword. Keywords match anywhere outside strings, REM and DATA
+    /// values, so `SCORE` lexes as the name `SC`, the OR keyword and the
+    /// name `E`.
     Name,
+    /// A run of digits.
     Number,
+    /// A string literal, including its quotation marks (the closing one may
+    /// be missing at the end of a line, as the C64 allows).
     Str,
+    /// The text after REM, to the end of the line, stored as typed.
     Rem,
+    /// One stored space.
     Space,
+    /// Any other single character, such as `:`, `,`, `(` or `.`.
     Punct,
 }
 
 /// A listing line split into number and pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexLine {
+    /// The line number, 1 to 63999.
     pub number: u16,
     /// 0-based byte offset of the body within the source line.
     pub body_column: usize,
+    /// The body's pieces, in source order.
     pub pieces: Vec<Piece>,
 }
 
