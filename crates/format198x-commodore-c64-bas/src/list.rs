@@ -3,8 +3,8 @@
 //! printed as its character. There is no ROM leading/trailing space logic to
 //! model here — unlike the Spectrum, the C64 stores exactly what LIST prints.
 
-use crate::lex_line;
 use crate::tokens::KEYWORDS;
+use crate::{ListingError, lex_line};
 
 /// Keyword text for a stored token byte, the inverse of [`KEYWORDS`]. Covers
 /// the token range 0x80 (END) to 0xCB (GO) that the tokeniser produces.
@@ -76,14 +76,14 @@ pub fn list(prg: &[u8]) -> Result<Vec<String>, String> {
 ///
 /// # Errors
 /// Returns an error under the same conditions as [`lex_line`].
-pub fn listed_form(source: &str) -> Result<Vec<(usize, String)>, String> {
+pub fn listed_form(source: &str) -> Result<Vec<(usize, String)>, ListingError> {
     let mut out = Vec::new();
     for (index, raw) in source.lines().enumerate() {
         let trimmed = raw.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let lexed = lex_line(raw).map_err(|message| format!("Line {}: {message}", index + 1))?;
+        let lexed = lex_line(raw).map_err(|e| ListingError::new(index + 1, e.message))?;
         let bytes: Vec<u8> = lexed
             .pieces
             .into_iter()

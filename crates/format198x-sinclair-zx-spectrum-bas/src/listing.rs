@@ -1,5 +1,6 @@
 //! Text-preserving conversion for editable listings. The ROM judges syntax;
 //! unlike the analysis AST, this path never invents expressions or drops text.
+use crate::error::ListingError;
 use crate::list::{list_line, rom_leading_space};
 use crate::tokens::KeywordRole;
 use crate::{BasicProgram, serialize::number_to_float5, tokens::KEYWORDS};
@@ -41,30 +42,33 @@ pub struct LexLine {
 ///
 /// # Errors
 /// Returns an error for unsupported characters, a malformed or missing line
-/// number, an empty body, or a malformed number/string within the body.
-pub fn lex_line(line: &str) -> Result<LexLine, String> {
+/// number, an empty body, or a malformed number/string within the body. A
+/// single line has no source context, so the error's `line` is 0;
+/// [`tokenise_listing`] and [`listed_form`] fill it in.
+pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
+    let fail = |message: &str| ListingError::new(0, message);
     let trimmed_end = line.trim_end_matches('\r');
     let text = trimmed_end.trim();
     if !text.bytes().all(|b| (32..=126).contains(&b)) {
-        return Err(
-            "use plain ASCII text; graphics and control codes are not supported here".into(),
-        );
+        return Err(fail(
+            "use plain ASCII text; graphics and control codes are not supported here",
+        ));
     }
     let end = text.bytes().take_while(u8::is_ascii_digit).count();
     let number: u16 = text[..end]
         .parse()
-        .map_err(|_| "start with a line number from 1 to 9999".to_string())?;
+        .map_err(|_| fail("start with a line number from 1 to 9999"))?;
     if !(1..=9999).contains(&number) {
-        return Err("line number must be 1 to 9999".into());
+        return Err(fail("line number must be 1 to 9999"));
     }
     let after_number = &text[end..];
     let body = after_number.trim_start();
     if body.is_empty() {
-        return Err("remove an entire line to delete it".into());
+        return Err(fail("remove an entire line to delete it"));
     }
     let leading_ws = trimmed_end.len() - trimmed_end.trim_start().len();
     let body_column = leading_ws + end + (after_number.len() - body.len());
-    let pieces = lex_body(body)?;
+    let pieces = lex_body(body).map_err(|message| fail(&message))?;
     Ok(LexLine {
         number,
         body_column,
@@ -82,17 +86,17 @@ pub fn lex_line(line: &str) -> Result<LexLine, String> {
 /// Returns an error for unsupported characters, malformed numbers/strings,
 /// missing, duplicate or empty lines, unsupported DEF FN, or oversized output.
 /// BASIC grammar is intentionally left to the ROM; tokenisation is not validation.
-pub fn tokenise_listing(source: &str) -> Result<BasicProgram, String> {
+pub fn tokenise_listing(source: &str) -> Result<BasicProgram, ListingError> {
     if source.len() > 65536 {
-        return Err("Source exceeds 64 KiB".into());
+        return Err(ListingError::new(0, "Source exceeds 64 KiB"));
     }
     let mut lines = BTreeMap::new();
     for (index, raw) in source.lines().enumerate() {
         if raw.trim().is_empty() {
             continue;
         }
-        let context = |message: &str| format!("Source line {}: {message}", index + 1);
-        let lexed = lex_line(raw).map_err(|e| context(&e))?;
+        let context = |message: &str| ListingError::new(index + 1, message);
+        let lexed = lex_line(raw).map_err(|e| context(&e.message))?;
         let mut bytes: Vec<u8> = lexed.pieces.into_iter().flat_map(|p| p.bytes).collect();
         bytes.push(13);
         let length = u16::try_from(bytes.len()).map_err(|_| context("line is too long"))?;
@@ -108,10 +112,16 @@ pub fn tokenise_listing(source: &str) -> Result<BasicProgram, String> {
     }
     let bytes: Vec<u8> = lines.into_values().flatten().collect();
     if bytes.is_empty() {
-        return Err("Enter at least one numbered BASIC line".into());
+        return Err(ListingError::new(
+            0,
+            "Enter at least one numbered BASIC line",
+        ));
     }
     if bytes.len() > 0x9000 {
-        return Err("Program exceeds this 48K editor's 36 KiB limit".into());
+        return Err(ListingError::new(
+            0,
+            "Program exceeds this 48K editor's 36 KiB limit",
+        ));
     }
     Ok(BasicProgram { bytes })
 }
@@ -122,14 +132,13 @@ pub fn tokenise_listing(source: &str) -> Result<BasicProgram, String> {
 ///
 /// # Errors
 /// Returns an error under the same conditions as [`lex_line`].
-pub fn listed_form(source: &str) -> Result<Vec<(usize, String)>, String> {
+pub fn listed_form(source: &str) -> Result<Vec<(usize, String)>, ListingError> {
     let mut out = Vec::new();
     for (index, raw) in source.lines().enumerate() {
         if raw.trim().is_empty() {
             continue;
         }
-        let context = |message: &str| format!("Source line {}: {message}", index + 1);
-        let lexed = lex_line(raw).map_err(|e| context(&e))?;
+        let lexed = lex_line(raw).map_err(|e| ListingError::new(index + 1, e.message))?;
         let bytes: Vec<u8> = lexed.pieces.into_iter().flat_map(|p| p.bytes).collect();
         out.push((index, list_line(lexed.number, &bytes)));
     }
@@ -437,6 +446,24 @@ mod tests {
             let stored = tokenise_listing(src).expect("tokenise").bytes;
             assert_eq!(&stored[4..stored.len() - 1], lexed.as_slice(), "{src}");
         }
+    }
+
+    #[test]
+    fn errors_carry_the_source_line_separately_from_the_message() {
+        let source = "10 PRINT 1\n\n30 PRINT \"x";
+        let expected = ListingError {
+            line: 3,
+            message: "missing closing quotation mark".into(),
+        };
+        assert_eq!(tokenise_listing(source).err(), Some(expected.clone()));
+        assert_eq!(listed_form(source).err(), Some(expected));
+        let alone = lex_line("30 PRINT \"x").expect_err("error");
+        assert_eq!(alone.line, 0);
+        let empty = tokenise_listing("\n").expect_err("error");
+        assert_eq!(
+            (empty.line, empty.to_string().as_str()),
+            (0, "Enter at least one numbered BASIC line")
+        );
     }
 
     #[test]

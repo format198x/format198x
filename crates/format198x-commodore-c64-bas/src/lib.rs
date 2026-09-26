@@ -4,9 +4,11 @@
 //! suitable for direct PRG import, and lists a PRG back out the way the C64's
 //! own LIST command prints it.
 
+mod error;
 mod list;
 mod tokens;
 
+pub use error::ListingError;
 pub use list::{list, list_line, listed_form};
 use tokens::KEYWORDS;
 
@@ -56,7 +58,7 @@ pub struct LexLine {
 /// # Errors
 ///
 /// Returns an error if any line number is missing or out of range.
-pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
+pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
     let mut lines: Vec<(u16, Vec<u8>)> = Vec::new();
 
     for (line_idx, raw_line) in source.lines().enumerate() {
@@ -65,8 +67,8 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
             continue;
         }
 
-        let (line_num, body_start) = parse_line_number(line)
-            .map_err(|message| format!("Line {}: {message}", line_idx + 1))?;
+        let (line_num, body_start) =
+            parse_line_number(line).map_err(|message| ListingError::new(line_idx + 1, message))?;
         let bytes: Vec<u8> = lex_body(&line[body_start..])
             .into_iter()
             .flat_map(|piece| piece.bytes)
@@ -101,11 +103,14 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
 /// space is stored as part of the body, so it lists back out too.
 ///
 /// # Errors
-/// Returns an error for a malformed or missing line number.
-pub fn lex_line(line: &str) -> Result<LexLine, String> {
+/// Returns an error for a malformed or missing line number. A single line has
+/// no source context, so the error's `line` is 0; [`tokenise`] and
+/// [`listed_form`] fill it in.
+pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
     let trimmed_end = line.trim_end();
     let text = trimmed_end.trim_start();
-    let (number, body_start) = parse_line_number(text)?;
+    let (number, body_start) =
+        parse_line_number(text).map_err(|message| ListingError::new(0, message))?;
     let leading_ws = trimmed_end.len() - text.len();
     let body_column = leading_ws + body_start;
     let pieces = lex_body(&text[body_start..]);
@@ -371,6 +376,19 @@ mod tests {
         let prog = tokenise("# comment\n\n10 END\n").expect("should tokenise");
         assert_eq!(prog.bytes[4], 10);
         assert_eq!(prog.bytes[5], 0);
+    }
+
+    #[test]
+    fn errors_carry_the_source_line_separately_from_the_message() {
+        let error = tokenise("10 END\n\n64000 END").expect_err("error");
+        assert_eq!(error.line, 3);
+        assert_eq!(error.message, "line number 64000 out of range (1-63999)");
+        assert_eq!(
+            error.to_string(),
+            "line 3: line number 64000 out of range (1-63999)"
+        );
+        assert_eq!(listed_form("10 END\n\n64000 END").err(), Some(error));
+        assert_eq!(lex_line("PRINT").expect_err("error").line, 0);
     }
 
     #[test]
