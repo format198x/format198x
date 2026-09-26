@@ -4,3 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- Dependency-free tokenising of numbered Commodore 64 BASIC V2 listings into
+  a PRG loading at `$0801`, byte-identical to petcat for every Code198x C64
+  sample: keywords tokenise wherever the C64 would, `REM` text and `DATA`
+  values stay literal, and lines are stored in number order.
+- `list` and `list_line`, which print a stored program as the C64's LIST
+  does, and `listed_form`, which gives what LIST would print for a source
+  listing.
+- `lex_line`, which splits a source line into positioned, classified pieces.
+- `ListingError`, a typed error carrying the 1-based source line apart from
+  its message.
