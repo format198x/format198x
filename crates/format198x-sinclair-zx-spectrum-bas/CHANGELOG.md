@@ -11,9 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- store a hidden zero after a bare BIN, as the ROM does
-- compute hidden numbers with the ROM's own arithmetic
-- tokenise colour items after PLOT, DRAW and CIRCLE
+All three changes make the stored bytes match what the genuine 48K ROM's
+editor stores, checked byte for byte against lines typed into it
+([#51](https://github.com/format198x/format198x/pull/51)).
+
+- **Colour items after PLOT, DRAW and CIRCLE are keywords.** The ROM lets
+  INK, PAPER, FLASH, BRIGHT, INVERSE and OVER come before the coordinates of
+  these three statements (syntax class CLASS-09, `$1CBE`), so
+  `PLOT INK 7; 10,10` now stores INK as a token rather than as letters of a
+  variable name.
+- **Hidden numbers use the ROM's own arithmetic.** The five-byte value stored
+  after each number now comes from a step-by-step copy of the ROM's DEC-TO-FP
+  (`$2C9B`) and its calculator's addition, multiplication and division, not
+  from exact decimal conversion. So `.5` is stored as `7F 7F FF FF FF`, just
+  under a half, as on the machine; `INT (x+.5)` behaves as it does there.
+  Checked against the ROM's result for 1,620 number spellings.
+- **A bare `BIN` stores a hidden zero**, `0E 00 00 00 00 00`, as the ROM does.
 
 ## [0.1.1](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-bas-v0.1.0...format198x-sinclair-zx-spectrum-bas-v0.1.1) - 2026-09-26
 
