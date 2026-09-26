@@ -41,5 +41,21 @@ so the ROM listed the same bytes the test lists.
   between values, statements after `:`.
 - Line numbers 1, 10, 100, 1000 and 9999; strings holding keywords; `REM`
   with doubled spaces and on its own.
+- Lines 430–460: the trailing space after `LLIST`/`RETURN` mid-line, and
+  `THEN`/`LINE` typed directly after a value with no source space.
 - Lines 2010–2400: forty lines from the Code198x Spectrum BASIC samples
   (`code-samples/sinclair-zx-spectrum/basic/*/unit-*/*.bas`), renumbered.
+
+## A source space after RND, INKEY$, PI is not exercised here
+
+`tokenise_listing` keeps a source space typed after RND, INKEY$ or PI (they
+take no arguments and get no ROM-side spacing on LIST either), but `runBasic`
+below is "the emulator's own tokeniser" (a direct-to-RAM installer, not a
+keystroke-accurate simulation of the ROM's line editor) and always absorbs
+that space, matching this crate's *old* behaviour. Capturing a case like
+`PRINT RND * 4` here would therefore assert the old, wrong behaviour, not the
+genuine ROM's. Lines 2030, 2120 and 2370 (copied from Code198x samples that
+naturally write `RND * n`) have that one space removed for this reason; the
+fix itself is covered by unit tests in `src/listing.rs` instead, which check
+`tokenise_listing`'s stored bytes directly rather than round-tripping through
+`runBasic`.
