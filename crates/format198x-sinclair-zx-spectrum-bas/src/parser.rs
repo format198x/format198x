@@ -31,14 +31,13 @@ fn parse_line(text: &str, source_line: usize) -> Result<Line, String> {
         return Err(format!("line {source_line}: missing line number"));
     }
     let num_str = &text[num_start..pos];
-    let number: u32 = num_str
-        .parse()
-        .map_err(|_| format!("line {source_line}: invalid line number"))?;
-    if number == 0 || number > 9999 {
-        return Err(format!(
-            "line {source_line}: line number {number} out of range 1–9999"
-        ));
-    }
+    // Any numeral outside 1 to 9999 gets the same message, including one
+    // too long to parse.
+    let number = num_str
+        .parse::<u16>()
+        .ok()
+        .filter(|n| (1..=9999).contains(n))
+        .ok_or_else(|| format!("line {source_line}: line number {num_str} out of range 1–9999"))?;
 
     while pos < bytes.len() && bytes[pos] == b' ' {
         pos += 1;
@@ -46,10 +45,7 @@ fn parse_line(text: &str, source_line: usize) -> Result<Line, String> {
 
     let mut parser = Parser::new(&text[pos..]);
     let statements = parser.parse_statement_list();
-    Ok(Line {
-        number: number as u16,
-        statements,
-    })
+    Ok(Line { number, statements })
 }
 
 struct Parser<'a> {

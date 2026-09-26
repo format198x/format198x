@@ -80,12 +80,16 @@ pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
         ));
     }
     let end = text.bytes().take_while(u8::is_ascii_digit).count();
-    let number: u16 = text[..end]
-        .parse()
-        .map_err(|_| fail("start with a line number from 1 to 9999"))?;
-    if !(1..=9999).contains(&number) {
-        return Err(fail("line number must be 1 to 9999"));
+    if end == 0 {
+        return Err(fail("start with a line number from 1 to 9999"));
     }
+    // Any numeral outside 1 to 9999 gets the same message, whether or not
+    // it fits in a u16.
+    let number = text[..end]
+        .parse::<u16>()
+        .ok()
+        .filter(|n| (1..=9999).contains(n))
+        .ok_or_else(|| fail("line number must be 1 to 9999"))?;
     let after_number = &text[end..];
     let body = after_number.trim_start();
     if body.is_empty() {
@@ -578,6 +582,15 @@ fn number_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_out_of_range_line_number_gets_the_same_message() {
+        for numeral in ["0", "10000", "65535", "70000", "99999999999"] {
+            let error = lex_line(&format!("{numeral} PRINT 1")).expect_err(numeral);
+            assert_eq!(error.message, "line number must be 1 to 9999", "{numeral}");
+        }
+        let error = lex_line("PRINT 1").expect_err("no line number");
+        assert_eq!(error.message, "start with a line number from 1 to 9999");
+    }
     #[test]
     fn literal_text_and_unknown_input_are_not_rewritten() {
         let result = tokenise_listing("10 PRINT \"GO TO 12\": REM PRINT 99").expect("listing");
