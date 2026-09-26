@@ -8,6 +8,8 @@ mod error;
 mod list;
 mod tokens;
 
+use std::collections::BTreeMap;
+
 pub use error::ListingError;
 pub use list::{list, list_line, listed_form};
 use tokens::KEYWORDS;
@@ -55,12 +57,16 @@ pub struct LexLine {
 
 /// Tokenises text BASIC source into C64 PRG format.
 ///
+/// Lines are stored in line-number order whatever order the source gives
+/// them in, as the C64 inserts each typed line into place.
+///
 /// # Errors
 ///
-/// Returns an error if any line number is missing or out of range, or a
-/// line holds a character outside printable ASCII.
+/// Returns an error if any line number is missing, out of range or used
+/// twice, a line holds a character outside printable ASCII, or the program
+/// would run past the top of the 64K address space.
 pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
-    let mut lines: Vec<(u16, Vec<u8>)> = Vec::new();
+    let mut lines: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
 
     for (line_idx, raw_line) in source.lines().enumerate() {
         let line = raw_line.trim();
@@ -74,7 +80,15 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
             .into_iter()
             .flat_map(|piece| piece.bytes)
             .collect();
-        lines.push((lexed.number, bytes));
+        if lines.insert(lexed.number, bytes).is_some() {
+            return Err(ListingError::new(
+                line_idx + 1,
+                format!(
+                    "line {} appears twice; edit its existing line",
+                    lexed.number
+                ),
+            ));
+        }
     }
 
     let mut output = vec![BASIC_START as u8, (BASIC_START >> 8) as u8];
@@ -82,7 +96,10 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
 
     for (line_num, content) in &lines {
         let line_size = 2 + 2 + content.len() + 1;
-        let next_addr = addr + line_size as u16;
+        let next_addr = u16::try_from(line_size)
+            .ok()
+            .and_then(|size| addr.checked_add(size))
+            .ok_or_else(|| ListingError::new(0, "program too large for the C64's memory"))?;
         output.push(next_addr as u8);
         output.push((next_addr >> 8) as u8);
         output.push(*line_num as u8);
@@ -410,6 +427,32 @@ mod tests {
         }
         assert!(listed_form("10 PRINT \"é\"").is_err());
         assert!(lex_line("10 PRINT \"é\"").is_err());
+    }
+
+    #[test]
+    fn lines_are_stored_in_number_order_and_duplicates_are_errors() {
+        let sorted = tokenise("10 PRINT 1\n20 PRINT 2").expect("sorted").bytes;
+        let shuffled = tokenise("20 PRINT 2\n10 PRINT 1").expect("shuffled").bytes;
+        assert_eq!(sorted, shuffled);
+        let error = tokenise("10 PRINT 1\n20 END\n10 PRINT 2").expect_err("duplicate");
+        assert_eq!(error.line, 3);
+        assert_eq!(
+            error.message,
+            "line 10 appears twice; edit its existing line"
+        );
+    }
+
+    #[test]
+    fn a_program_past_the_top_of_memory_is_an_error_not_a_panic() {
+        // 3,000 lines of ~25 bytes each run past $FFFF from $0801.
+        let source: String = (1..=3000)
+            .map(|n| format!("{n} PRINT \"XXXXXXXXXXXXXXXXXX\"\n"))
+            .collect();
+        let error = tokenise(&source).expect_err("too large");
+        assert_eq!(
+            (error.line, error.message.as_str()),
+            (0, "program too large for the C64's memory")
+        );
     }
 
     #[test]
