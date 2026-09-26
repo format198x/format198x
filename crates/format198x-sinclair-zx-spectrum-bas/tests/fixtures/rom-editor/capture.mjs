@@ -23,13 +23,31 @@ const PROGRAM = [
   '20{LET}a 1=2:{LET}b c=3:{PRINT}a1;" ";a 1;" ";bc',
   '30{PRINT}{BIN}1 0 1 ;" ";7 ;" ";1.5E+ 3',
   '40{PRINT}1 :{PRINT}2',
+  '50{PLOT}{INK}7;{OVER}1;10,20:{DRAW}{INK}1;{PAPER}6;30,0',
+  '60{CIRCLE}{BRIGHT}1;{FLASH}0;{INVERSE}0;128,88,20',
 ];
 // Lines the ROM's syntax check refuses: a space inside a number's whole part
 // or its exponent digits ends the number.
 const REFUSED = ['10{PRINT}1 000', '10{PRINT}1 .5', '10{PRINT}1E3 3'];
 
-// K-mode keys, and E (extended) mode for BIN.
-const KEYWORDS = { CLS: ['KeyV'], PRINT: ['KeyP'], LET: ['KeyL'], RUN: ['KeyR'], BIN: ['ext', 'KeyB'] };
+// K-mode keys, and E (extended) mode, with symbol shift for the colour
+// items and CIRCLE.
+const KEYWORDS = {
+  CLS: ['KeyV'],
+  PRINT: ['KeyP'],
+  LET: ['KeyL'],
+  RUN: ['KeyR'],
+  PLOT: ['KeyQ'],
+  DRAW: ['KeyW'],
+  BIN: ['ext', 'KeyB'],
+  CIRCLE: ['ext', 'ControlLeft', 'KeyH'],
+  INK: ['ext', 'ControlLeft', 'KeyX'],
+  PAPER: ['ext', 'ControlLeft', 'KeyC'],
+  FLASH: ['ext', 'ControlLeft', 'KeyV'],
+  BRIGHT: ['ext', 'ControlLeft', 'KeyB'],
+  INVERSE: ['ext', 'ControlLeft', 'KeyM'],
+  OVER: ['ext', 'ControlLeft', 'KeyN'],
+};
 const SYMBOLS = { '=': 'L', ':': 'Z', '.': 'M', '+': 'K', '-': 'J', ';': 'O', '"': 'P', ',': 'N' };
 const listingText = (typed) =>
   typed.replace(/^(\d+)/, '$1 ').replace(/\{([A-Z]+)\}/g, '$1 ').trimEnd();

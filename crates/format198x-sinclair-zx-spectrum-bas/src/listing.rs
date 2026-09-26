@@ -184,13 +184,13 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
     let mut pos = 0;
     let mut binary = false;
     let mut statement_start = true;
-    let mut printing = false;
+    let mut items = Items::None;
     let mut variable = false;
     while pos < bytes.len() {
         let ch = bytes[pos];
         if variable && ch.is_ascii_alphabetic() {
             let start = pos;
-            pos = name_end(source, pos, statement_start, printing);
+            pos = name_end(source, pos, statement_start, items);
             out.push(Piece {
                 kind: PieceKind::Name,
                 bytes: bytes[start..pos].to_vec(),
@@ -234,7 +234,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
                 text: source[pos..pos + operator.len()].to_string(),
             });
             pos += operator.len();
-        } else if let Some((keyword, token)) = keyword_at(source, pos, statement_start, printing) {
+        } else if let Some((keyword, token)) = keyword_at(source, pos, statement_start, items) {
             if token == 0xCE {
                 return Err("DEF FN is not supported by this editor yet".into());
             }
@@ -258,7 +258,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
                 text: source[start..start + word_len].to_string(),
             });
             if statement_start {
-                printing = token == 0xF5 || token == 0xEE || token == 0xE0;
+                items = Items::after(token);
             }
             statement_start = token == 0xCB;
             variable = matches!(token, 0xF1 | 0xEB | 0xF3 | 0xE9 | 0xE3);
@@ -287,7 +287,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             binary = token == 0xC4;
         } else if ch.is_ascii_alphabetic() {
             let start = pos;
-            pos = name_end(source, pos, statement_start, printing);
+            pos = name_end(source, pos, statement_start, items);
             out.push(Piece {
                 kind: PieceKind::Name,
                 bytes: bytes[start..pos].to_vec(),
@@ -302,7 +302,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
                     .is_some_and(u8::is_ascii_digit))
         {
             let start = pos;
-            pos = number_end(source, pos, binary, statement_start, printing)?;
+            pos = number_end(source, pos, binary, statement_start, items)?;
             let digits: String = source[start..pos].chars().filter(|c| *c != ' ').collect();
             let value = if binary {
                 u16::from_str_radix(&digits, 2)
@@ -324,7 +324,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             // stays a Space piece, for the keyword branch to drop.
             let after = skip_spaces(bytes, pos);
             let dropped_before_keyword = after == pos + 1
-                && keyword_at(source, after, statement_start, printing)
+                && keyword_at(source, after, statement_start, items)
                     .is_some_and(|(_, token)| rom_leading_space(token));
             if !dropped_before_keyword {
                 pos = after;
@@ -343,7 +343,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
         } else {
             if ch == b':' {
                 statement_start = true;
-                printing = false;
+                items = Items::None;
             }
             // Retain punctuation and mistakes, so the ROM sees what was entered.
             out.push(Piece {
@@ -358,6 +358,40 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
     Ok(out)
 }
 
+/// Which embedded items the current statement's keyword admits, beyond
+/// ordinary expression keywords.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Items {
+    /// None: PRINT's items and colour items are ordinary names here.
+    None,
+    /// PRINT, LPRINT and INPUT: print items (AT, TAB) and colour items.
+    Print,
+    /// PLOT, DRAW and CIRCLE, whose syntax class CLASS-09 (1CBE) lets colour
+    /// items (INK to OVER, tokens 0xD9–0xDE, CO-TEMP-3 at 21F2) precede the
+    /// coordinates: `PLOT INK 2; OVER 1;x,y`.
+    Colour,
+}
+
+impl Items {
+    /// The items admitted by a statement that starts with `token`.
+    fn after(token: u8) -> Self {
+        match token {
+            0xF5 | 0xEE | 0xE0 => Self::Print,
+            0xF6 | 0xFC | 0xD8 => Self::Colour,
+            _ => Self::None,
+        }
+    }
+
+    /// Whether a PrintItem keyword with this token is admitted.
+    fn allows(self, token: u8) -> bool {
+        match self {
+            Self::None => false,
+            Self::Print => true,
+            Self::Colour => (0xD9..=0xDE).contains(&token),
+        }
+    }
+}
+
 /// The first position at or after `pos` that is not a space.
 fn skip_spaces(bytes: &[u8], pos: usize) -> usize {
     pos + bytes
@@ -370,15 +404,15 @@ fn keyword_at(
     source: &str,
     pos: usize,
     statement_start: bool,
-    printing: bool,
+    items: Items,
 ) -> Option<(&'static str, u8)> {
     let rest = source.as_bytes().get(pos..)?;
     KEYWORDS
         .iter()
-        .find(|(keyword, _, role)| {
+        .find(|(keyword, token, role)| {
             let allowed = match role {
                 KeywordRole::Statement | KeywordRole::RestOfLine => statement_start,
-                KeywordRole::PrintItem => statement_start || printing,
+                KeywordRole::PrintItem => statement_start || items.allows(*token),
                 _ => true,
             };
             if !allowed {
@@ -408,7 +442,7 @@ fn keyword_at(
 /// following letter or
 /// digit, unless that letter starts a keyword (typed on a Spectrum, it would
 /// be a token, not letters). A name ending in `$` is a string name and stops.
-fn name_end(source: &str, mut pos: usize, statement_start: bool, printing: bool) -> usize {
+fn name_end(source: &str, mut pos: usize, statement_start: bool, items: Items) -> usize {
     let bytes = source.as_bytes();
     loop {
         while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'$') {
@@ -421,7 +455,7 @@ fn name_end(source: &str, mut pos: usize, statement_start: bool, printing: bool)
         let continues = bytes.get(next).is_some_and(|b| {
             b.is_ascii_digit()
                 || (b.is_ascii_alphabetic()
-                    && keyword_at(source, next, statement_start, printing).is_none())
+                    && keyword_at(source, next, statement_start, items).is_none())
         });
         if next == pos || !continues {
             return pos;
@@ -467,7 +501,7 @@ fn number_end(
     pos: usize,
     binary: bool,
     statement_start: bool,
-    printing: bool,
+    items: Items,
 ) -> Result<usize, String> {
     let bytes = source.as_bytes();
     if binary {
@@ -487,7 +521,7 @@ fn number_end(
     if bytes
         .get(e_at)
         .is_some_and(|b| b.eq_ignore_ascii_case(&b'e'))
-        && keyword_at(source, e_at, statement_start, printing).is_none()
+        && keyword_at(source, e_at, statement_start, items).is_none()
     {
         pos = skip_spaces(bytes, e_at + 1);
         if bytes.get(pos).is_some_and(|b| *b == b'+' || *b == b'-') {
@@ -731,6 +765,7 @@ mod tests {
             "10 PRINT 1.5 E3;. 5;BIN 1 0 1 ;7  ;1 :PRINT 2",
             "10 LET a 1=2: PRINT a1;a b",
             "10 IF a=1  THEN STOP",
+            "10 PLOT INK 7; OVER 1;x,y: DRAW PAPER 1;3,4: CIRCLE BRIGHT 1;9,9,5",
         ];
         for source in cases.lines().chain(tricky) {
             let once = relisted(source);
@@ -860,6 +895,38 @@ mod tests {
         );
         let tight = tokenise_listing("10 FOR i=1 TO n STEP 2").expect("t").bytes;
         assert!(tight.contains(&0xCC) && tight.contains(&0xCD));
+    }
+
+    #[test]
+    fn colour_items_after_plot_draw_and_circle_are_keywords() {
+        // CLASS-09 (1CBE) lets INK to OVER precede PLOT, DRAW and CIRCLE's
+        // coordinates, and the ROM's editor stores them as tokens.
+        for (src, tokens) in [
+            ("10 PLOT INK 7; OVER 1;x,y", vec![0xF6, 0xD9, 0xDE]),
+            ("10 DRAW PAPER 6; BRIGHT 1;3,0", vec![0xFC, 0xDA, 0xDC]),
+            ("10 CIRCLE FLASH 0; INVERSE 1;9,9,5", vec![0xD8, 0xDB, 0xDD]),
+        ] {
+            let kinds: Vec<u8> = lex_line(src)
+                .expect(src)
+                .pieces
+                .iter()
+                .filter_map(|p| match p.kind {
+                    PieceKind::Keyword(token) => Some(token),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(kinds, tokens, "{src}");
+        }
+        // Only colour items: AT and TAB are PRINT items, not PLOT's.
+        assert_eq!(
+            pieces("10 PLOT at,1")[1],
+            (PieceKind::Name, "at".to_string())
+        );
+        // A later statement without colour items does not inherit them.
+        assert_eq!(
+            pieces("10 PLOT 1,2: LET ink=3")[6],
+            (PieceKind::Name, "ink".to_string())
+        );
     }
 
     #[test]
