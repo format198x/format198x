@@ -154,8 +154,12 @@ mod tests {
 
     #[test]
     fn line_number_out_of_range() {
-        assert!(tokenise("0 PRINT \"bad\"").is_err());
-        assert!(tokenise("10000 PRINT \"bad\"").is_err());
+        for numeral in ["0", "10000", "70000", "99999999999"] {
+            assert_eq!(
+                tokenise(&format!("{numeral} PRINT \"bad\"")).expect_err(numeral),
+                format!("line 1: line number {numeral} out of range 1–9999")
+            );
+        }
     }
 
     #[test]
