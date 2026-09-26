@@ -40,17 +40,13 @@ prints, so this checks their values by running them, not by reading them.
 
 ## What the test compares
 
-The hidden numbers are compared by value, not byte for byte. The ROM computes
-a number with its own calculator as it reads the digits, and does not always
-store the form this crate does: for `1.5 E3` it stores 1500 in the full
-floating-point form (`8B 3B 80 00 00`), where this crate stores the
-small-integer form (`00 00 DC 05 00`). Both print as 1500. Every other byte,
-and where each hidden number sits, must match exactly.
-
-The cases avoid decimal fractions whose value the ROM's arithmetic rounds
-differently: typed in, `.5` is stored as `7F 7F FF FF FF` (just under 0.5)
-and `0.1` as `7D 4C CC CC CC`, where this crate stores the correctly rounded
-`80 00 00 00 00` and `7D 4C CC CC CD`.
+Every stored byte, hidden numbers included. The ROM computes a number's
+hidden form with its own calculator as it reads the digits, so `.5` is
+stored as `7F 7F FF FF FF` (just under a half) and `1.5 E3` as 1500 in the
+full floating-point form; the crate repeats that arithmetic. The TAP check
+compares what `PRINT` shows, which rounds those differences away, so it
+confirms the program runs as typed rather than the hidden bytes themselves.
+[`../rom-numbers`](../rom-numbers/README.md) checks many more numbers.
 
 ## Where the ROM skips spaces in a number
 

@@ -3,7 +3,7 @@
 use crate::error::ListingError;
 use crate::list::{list_line, rom_leading_space};
 use crate::tokens::KeywordRole;
-use crate::{BasicProgram, serialize::number_to_float5, tokens::KEYWORDS};
+use crate::{BasicProgram, rom_number, tokens::KEYWORDS};
 use std::collections::BTreeMap;
 
 /// One stored piece of a line body, with where it came from in the source.
@@ -304,19 +304,16 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             let start = pos;
             pos = number_end(source, pos, binary, statement_start, items)?;
             let digits: String = source[start..pos].chars().filter(|c| *c != ' ').collect();
-            let value = if binary {
+            // The hidden form is what the ROM's own arithmetic makes of the
+            // digits (see `rom_number`), not the correctly rounded value.
+            let hidden = if binary {
                 u16::from_str_radix(&digits, 2)
-                    .map(f64::from)
+                    .map(rom_number::bin_to_fp)
                     .map_err(|_| "BIN needs up to 16 binary digits")?
             } else {
-                digits.parse::<f64>().map_err(|_| "invalid number")?
+                rom_number::dec_to_fp(&digits)
+                    .map_err(|_| "number is outside the Spectrum's range")?
             };
-            if !value.is_finite()
-                || value >= 2.0_f64.powi(127)
-                || (value != 0.0 && value < 2.0_f64.powi(-128))
-            {
-                return Err("number is outside the Spectrum's range".into());
-            }
             // S-DECIMAL (268D) collects the character after the number with
             // GET-CHAR, which skips spaces, and opens the room for the hidden
             // form there: spaces after a number are stored before its 0x0E.
@@ -332,7 +329,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             let spelling = &source[start..pos];
             let mut number_bytes = spelling.as_bytes().to_vec();
             number_bytes.push(14);
-            number_bytes.extend_from_slice(&number_to_float5(value));
+            number_bytes.extend_from_slice(&hidden);
             out.push(Piece {
                 kind: PieceKind::Number,
                 bytes: number_bytes,
@@ -784,11 +781,16 @@ mod tests {
     }
 
     /// A number piece's stored bytes: its text, 0x0E and the value's form.
-    fn number(text: &str, value: f64) -> Vec<u8> {
+    fn number(text: &str, hidden: [u8; 5]) -> Vec<u8> {
         let mut bytes = text.as_bytes().to_vec();
         bytes.push(14);
-        bytes.extend_from_slice(&number_to_float5(value));
+        bytes.extend_from_slice(&hidden);
         bytes
+    }
+
+    /// A small integer's hidden form.
+    fn int(n: u8) -> [u8; 5] {
+        [0, 0, n, 0, 0]
     }
 
     #[test]
@@ -796,15 +798,20 @@ mod tests {
         // DEC-TO-FP reads a number's fraction and E part with NEXT-CHAR,
         // which skips spaces, so each of these is one number with one hidden
         // value, stored with its spaces as typed.
-        for (src, text, value) in [
-            ("10 PRINT 1.5 E3", "1.5 E3", 1500.0),
-            ("10 PRINT 1. 5", "1. 5", 1.5),
-            ("10 PRINT 1.5 5", "1.5 5", 1.55),
-            ("10 PRINT . 5", ". 5", 0.5),
-            ("10 PRINT 12.5 E 2", "12.5 E 2", 1250.0),
-            ("10 PRINT 1.5E- 3", "1.5E- 3", 0.0015),
-            ("10 PRINT 1.5 e + 3", "1.5 e + 3", 1500.0),
-            ("10 PRINT BIN 1 0 1", "1 0 1", 5.0),
+        // The hidden forms are what the ROM stored for each, typed in.
+        for (src, text, hidden) in [
+            ("10 PRINT 1.5 E3", "1.5 E3", [0x8B, 0x3B, 0x80, 0, 0]),
+            ("10 PRINT 1. 5", "1. 5", [0x81, 0x40, 0, 0, 0]),
+            ("10 PRINT 1.5 5", "1.5 5", [0x81, 0x46, 0x66, 0x66, 0x66]),
+            ("10 PRINT . 5", ". 5", [0x7F, 0x7F, 0xFF, 0xFF, 0xFF]),
+            ("10 PRINT 12.5 E 2", "12.5 E 2", [0x8B, 0x1C, 0x40, 0, 0]),
+            (
+                "10 PRINT 1.5E- 3",
+                "1.5E- 3",
+                [0x77, 0x44, 0x9B, 0xA5, 0xE3],
+            ),
+            ("10 PRINT 1.5 e + 3", "1.5 e + 3", [0x8B, 0x3B, 0x80, 0, 0]),
+            ("10 PRINT BIN 1 0 1", "1 0 1", int(5)),
         ] {
             let line = lex_line(src).expect(src);
             let numbers: Vec<&Piece> = line
@@ -814,7 +821,7 @@ mod tests {
                 .collect();
             assert_eq!(numbers.len(), 1, "{src}");
             assert_eq!(numbers[0].text, text, "{src}");
-            assert_eq!(numbers[0].bytes, number(text, value), "{src}");
+            assert_eq!(numbers[0].bytes, number(text, hidden), "{src}");
         }
     }
 
@@ -850,20 +857,23 @@ mod tests {
             .expect("t")
             .bytes;
         let mut want = vec![0xF5];
-        want.extend(number("1 ", 1.0));
+        want.extend(number("1 ", int(1)));
         want.extend([b':', 0xF5]);
-        want.extend(number("7  ", 7.0));
+        want.extend(number("7  ", int(7)));
         want.push(b';');
-        want.extend(number("2", 2.0));
+        want.extend(number("2", int(2)));
         want.push(13);
         assert_eq!(&bytes[4..], want.as_slice());
         // A single space before THEN is still the one LIST supplies, so it
         // is dropped; a second one is stored, before the hidden value.
         let one = tokenise_listing("10 IF a=1 THEN STOP").expect("t").bytes;
-        assert!(one.windows(7).any(|w| w == number("1", 1.0).as_slice()));
+        assert!(one.windows(7).any(|w| w == number("1", int(1)).as_slice()));
         assert!(one.windows(2).all(|w| w != [b' ', 0xCB]));
         let two = tokenise_listing("10 IF a=1  THEN STOP").expect("t").bytes;
-        assert!(two.windows(9).any(|w| w == number("1  ", 1.0).as_slice()));
+        assert!(
+            two.windows(9)
+                .any(|w| w == number("1  ", int(1)).as_slice())
+        );
     }
 
     #[test]
