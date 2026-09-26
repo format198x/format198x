@@ -39,7 +39,7 @@ version = "0.1.1"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-bas"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-scr"
