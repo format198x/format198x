@@ -34,6 +34,12 @@ number are stored before its hidden value, where the ROM puts them. A
 variable name runs on across spaces to a letter or digit, so `a 1` is the
 variable `a1`.
 
+Each hidden value is what the ROM's own arithmetic makes of the digits, byte
+for byte, not the correctly rounded value: the ROM stores `.5` as
+`7F 7F FF FF FF`, just under a half, and so does this crate. Colour items
+(`INK`, `PAPER`, `FLASH`, `BRIGHT`, `INVERSE`, `OVER`) are keywords after
+`PLOT`, `DRAW` and `CIRCLE` as well as in `PRINT`, `LPRINT` and `INPUT`.
+
 ## List a program
 
 ```rust
