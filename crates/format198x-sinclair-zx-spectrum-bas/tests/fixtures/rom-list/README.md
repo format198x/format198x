@@ -15,10 +15,14 @@ Never edit `cases.list` by hand: change `cases.bas` and capture again.
 | Captured | 2026-09-26 |
 
 ```bash
-EMU198X_ZX_SPECTRUM_PKG=/Users/stevehill/Projects/198x/Code198x/website-bpi/node_modules/@emu198x/zx-spectrum \
-SPECTRUM_48K_ROM=$HOME/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom \
+EMU198X_ZX_SPECTRUM_PKG='<path to the @emu198x/zx-spectrum package>' \
+SPECTRUM_48K_ROM='<path to the 48K ROM>' \
 node crates/format198x-sinclair-zx-spectrum-bas/tests/fixtures/rom-list/capture.mjs
 ```
+
+The script refuses a package whose version differs from the one in the table
+above, so a capture with a different emulator build cannot silently replace
+this one; update both together.
 
 The script boots for 3000 ms, installs `cases.bas` with `runBasic` (line 1 is
 `STOP`, so nothing else runs), then for each line types `CLS` and a `LIST`,
