@@ -16,8 +16,10 @@
 //! Each line must start with a line number (1–9999).
 
 pub mod ast;
+mod error;
 mod list;
 mod listing;
+pub use error::ListingError;
 pub use list::{KEYWORD_NAMES, list, list_line};
 mod parser;
 pub use listing::{LexLine, Piece, PieceKind, lex_line, listed_form, tokenise_listing};
@@ -36,6 +38,9 @@ pub struct BasicProgram {
 /// # Errors
 ///
 /// Returns an error if a line has no line number or the line number is out of range.
+/// This is the analysis route, so its error is a plain message; the
+/// editable-listing functions ([`tokenise_listing`], [`lex_line`],
+/// [`listed_form`]) return a [`ListingError`] with the line kept separate.
 pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
     let program = parser::parse_program(source)?;
     let bytes = serialize::serialize(&program);
@@ -43,6 +48,10 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
 }
 
 /// Parse a text BASIC program into an AST without tokenising.
+///
+/// # Errors
+///
+/// Returns a plain message under the same conditions as [`tokenise`].
 pub fn parse(source: &str) -> Result<ast::Program, String> {
     parser::parse_program(source)
 }
