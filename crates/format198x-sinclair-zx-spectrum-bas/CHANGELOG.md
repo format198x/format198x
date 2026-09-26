@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-bas-v0.1.2...format198x-sinclair-zx-spectrum-bas-v0.1.3) - 2026-09-26
+
+### Fixed
+
+- *(format198x-sinclair-zx-spectrum-bas)* give every out-of-range line number one message
+
 ## [0.1.2](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-bas-v0.1.1...format198x-sinclair-zx-spectrum-bas-v0.1.2) - 2026-09-26
 
 ### Fixed

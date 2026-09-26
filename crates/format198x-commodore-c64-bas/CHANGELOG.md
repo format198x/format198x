@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/format198x/format198x/compare/format198x-commodore-c64-bas-v0.1.0...format198x-commodore-c64-bas-v0.1.1) - 2026-09-26
+
+### Fixed
+
+- *(format198x-commodore-c64-bas)* accept line 0 and give every out-of-range line number one message
+- *(format198x-commodore-c64-bas)* refuse a program larger than BASIC memory
+
 ## [0.1.0](https://github.com/format198x/format198x/releases/tag/format198x-commodore-c64-bas-v0.1.0) - 2026-09-26
 
 ### Added
