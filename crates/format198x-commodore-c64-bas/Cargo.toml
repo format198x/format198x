@@ -4,7 +4,7 @@
 [package]
 name = "format198x-commodore-c64-bas"
 description = "Commodore 64 BASIC V2 — tokenise numbered text listings into a PRG, and list them as the machine does."
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
