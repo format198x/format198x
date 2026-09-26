@@ -21,8 +21,10 @@ std::fs::write("hello.prg", &program.bytes)?;
 
 Keywords are tokenised wherever they appear outside strings, `REM` and `DATA`
 values, as the C64 does: `GOTO10` and `FORI=1TO10` tokenise, and `SCORE`
-stores the `OR` token in the middle. Lines are stored in line-number order.
-Blank lines are skipped; any other line must start with a line number.
+stores the `OR` token in the middle. `?` is stored as the character, as
+petcat stores it; the C64's own cruncher stores the PRINT token for it.
+Lines are stored in line-number order. Blank lines are skipped; any other
+line must start with a line number.
 
 ## Errors
 

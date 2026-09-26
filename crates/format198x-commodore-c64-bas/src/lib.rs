@@ -3,6 +3,10 @@
 //! Converts plain-text `.bas` files with line numbers into tokenised PRG bytes
 //! suitable for direct PRG import, and lists a PRG back out the way the C64's
 //! own LIST command prints it.
+//!
+//! Keywords tokenise wherever the C64's cruncher would tokenise them, with
+//! one difference: `?` is stored as the character, as petcat stores it,
+//! where the C64 stores the PRINT token.
 
 mod error;
 mod list;
@@ -304,7 +308,9 @@ fn lex_body(source: &str) -> Vec<Piece> {
 
 /// The keyword starting at `text`, if any. Like the C64's own cruncher, this
 /// matches anywhere, with no word boundary: `GOTO10` and `FORI=1TO10`
-/// tokenise, and `SCORE` stores `S`, `C`, the `OR` token and `E`.
+/// tokenise, and `SCORE` stores `S`, `C`, the `OR` token and `E`. `?` is
+/// stored as the character, as petcat stores it; the C64's cruncher stores
+/// the PRINT token for it instead ($A59C).
 fn match_keyword(text: &[u8]) -> Option<(u8, usize)> {
     KEYWORDS
         .iter()
