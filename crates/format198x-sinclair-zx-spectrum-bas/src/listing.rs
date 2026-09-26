@@ -19,6 +19,7 @@ pub struct Piece {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PieceKind {
     Keyword(u8),
     Name,
