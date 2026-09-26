@@ -205,11 +205,19 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             }
             let word = keyword.trim_end();
             let rest = &bytes[pos..];
+            // A word boundary only matters when the keyword ends in a letter
+            // or `$`: `OPEN #` and `CLOSE #` end in `#`, so the stream number
+            // may follow directly (`OPEN #4`), as LIST prints it.
+            let needs_boundary = word
+                .bytes()
+                .last()
+                .is_some_and(|b| b.is_ascii_alphabetic() || b == b'$');
             rest.len() >= word.len()
                 && rest[..word.len()].eq_ignore_ascii_case(word.as_bytes())
-                && rest
-                    .get(word.len())
-                    .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'$')
+                && (!needs_boundary
+                    || rest
+                        .get(word.len())
+                        .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'$'))
         }) {
             if token == 0xCE {
                 return Err("DEF FN is not supported by this editor yet".into());
@@ -244,12 +252,10 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             // ROM trailing space on LIST either (`list::rom_trailing_space`
             // excludes them for the same reason), so a source space after
             // one is real content, not display padding the ROM will restore.
-            // OPEN # and CLOSE # still absorb their trailing space here too —
-            // a scoped choice, not ROM-verified behaviour: see
-            // `tests/fixtures/rom-list/README.md` for why the ROM-capture
-            // fixture can't settle this (its installer isn't a
-            // keystroke-accurate ROM simulation), so `OPEN # 4` does not
-            // round-trip; that is a known gap, not guessed at here.
+            // OPEN # and CLOSE # absorb one source space too, so `OPEN # 4`
+            // stores the same bytes as `OPEN #4`, which is how LIST prints it
+            // (no ROM trailing space after `#`) and which lexes back to the
+            // same bytes.
             if !matches!(token, 0xA5..=0xA7) && bytes.get(pos) == Some(&b' ') {
                 pos += 1;
             }
@@ -494,6 +500,54 @@ mod tests {
         );
         let listed = listed_form("10 PRINT RND * 4").expect("listed");
         assert_eq!(listed[0].1.trim_end(), "  10 PRINT RND * 4");
+    }
+
+    #[test]
+    fn open_and_close_take_a_stream_number_directly_after_the_hash() {
+        for (src, token) in [("10 OPEN #4,\"s\"", 0xD3), ("10 CLOSE #4", 0xD4)] {
+            let bytes = tokenise_listing(src).expect("tokenises").bytes;
+            assert_eq!(bytes[4], token, "{src}");
+            assert_eq!(bytes[5], b'4', "{src}");
+        }
+        let spaced = tokenise_listing("10 OPEN # 4,\"s\"").expect("spaced").bytes;
+        let tight = tokenise_listing("10 OPEN #4,\"s\"").expect("tight").bytes;
+        assert_eq!(spaced, tight);
+        assert_eq!(
+            listed_form("10 OPEN # 4,\"s\"").expect("listed")[0].1,
+            "  10 OPEN #4,\"s\""
+        );
+    }
+
+    /// The listed form of each line, re-joined as a listing.
+    fn relisted(source: &str) -> String {
+        listed_form(source)
+            .expect("listed")
+            .into_iter()
+            .map(|(_, line)| line + "\n")
+            .collect()
+    }
+
+    #[test]
+    fn listed_form_is_idempotent() {
+        let cases = include_str!("../tests/fixtures/rom-list/cases.bas");
+        let tricky = [
+            "10 OPEN # 4,\"s\":CLOSE # 4",
+            "10 OPEN #4:CLOSE #4",
+            "10 IF a  THEN STOP",
+            "10 PRINT 1:  REM  x  ",
+            "10 PRINT RND * 4;INKEY$ ;PI ",
+            "10 IF a=1THEN GO TO 20",
+            "10 SAVE \"x\"LINE 10",
+            "10 LLIST : STOP",
+            "10 PRINT a<=b ; a >= b;a <> b",
+            "10 FOR i=1TO 9STEP 2",
+            "10 PRINT \"  THEN  \"",
+            "10 PRINT 1e3;.5;BIN 101",
+        ];
+        for source in cases.lines().chain(tricky) {
+            let once = relisted(source);
+            assert_eq!(relisted(&once), once, "{source}");
+        }
     }
 
     #[test]
