@@ -20,6 +20,15 @@ use tokens::KEYWORDS;
 
 const BASIC_START: u16 = 0x0801;
 
+/// The first address past BASIC program memory. With the BASIC ROM banked in
+/// at `$A000`, a stock C64 keeps BASIC programs in `$0801`–`$9FFF`: the
+/// Programmer's Reference Guide's memory map lists `0800-9FFF` as "Normal
+/// BASIC Program Space" and `A000-BFFF` as "BASIC ROM" (Commodore 64
+/// Programmer's Reference Guide, 1983, memory map appendix; see
+/// `reference/by-system/commodore-c64/1983-commodore-64-programmers-reference-guide.txt`).
+/// `$A000 - $0801` is the 38,911 bytes the C64 reports free at power-on.
+const BASIC_END: u32 = 0xA000;
+
 /// A tokenised BASIC program in PRG format.
 #[derive(Debug, Clone)]
 pub struct BasicProgram {
@@ -92,7 +101,7 @@ pub struct LexLine {
 ///
 /// Returns an error if any line number is missing, out of range or used
 /// twice, a line holds a character outside printable ASCII, or the program
-/// would run past the top of the 64K address space.
+/// would not fit in BASIC's memory (`$0801`–`$9FFF`, 38,911 bytes).
 pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
     let mut lines: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
 
@@ -118,19 +127,32 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
         }
     }
 
-    let mut output = vec![BASIC_START as u8, (BASIC_START >> 8) as u8];
+    // The stored program: each line's link, number, body and 0x00, then the
+    // two-byte end marker.
+    let size: usize = 2 + lines
+        .values()
+        .map(|body| 2 + 2 + body.len() + 1)
+        .sum::<usize>();
+    let limit = BASIC_END - u32::from(BASIC_START);
+    if size > limit as usize {
+        return Err(ListingError::new(
+            0,
+            format!(
+                "program is {size} bytes, more than the {limit} bytes of BASIC memory \
+                 ($0801-$9FFF) on a C64"
+            ),
+        ));
+    }
+
+    let mut output = Vec::with_capacity(2 + size);
+    output.extend_from_slice(&BASIC_START.to_le_bytes());
     let mut addr = BASIC_START;
 
     for (line_num, content) in &lines {
-        let line_size = 2 + 2 + content.len() + 1;
-        let next_addr = u16::try_from(line_size)
-            .ok()
-            .and_then(|size| addr.checked_add(size))
-            .ok_or_else(|| ListingError::new(0, "program too large for the C64's memory"))?;
-        output.push(next_addr as u8);
-        output.push((next_addr >> 8) as u8);
-        output.push(*line_num as u8);
-        output.push((line_num >> 8) as u8);
+        // Cannot overflow: the whole program fits below BASIC_END.
+        let next_addr = addr + (2 + 2 + content.len() + 1) as u16;
+        output.extend_from_slice(&next_addr.to_le_bytes());
+        output.extend_from_slice(&line_num.to_le_bytes());
         output.extend_from_slice(content);
         output.push(0x00);
         addr = next_addr;
@@ -500,17 +522,57 @@ mod tests {
         );
     }
 
+    /// A source of `N REMXXX…` lines whose stored program, end marker
+    /// included, is `size` bytes. Each stored line is link (2) + number (2)
+    /// + body + 0x00; the program adds a 2-byte end marker.
+    fn program_of_size(size: usize) -> String {
+        let mut remaining = size - 2;
+        let mut source = String::new();
+        let mut number = 1;
+        while remaining > 0 {
+            // A body of the REM token plus padding, at most 195 bytes.
+            let body_len = remaining.min(200) - 5;
+            let pad = body_len - 1;
+            source.push_str(&format!("{number} REM{}\n", "X".repeat(pad)));
+            remaining -= body_len + 5;
+            number += 1;
+            if remaining > 0 && remaining < 6 {
+                panic!("pick a size that splits into whole lines");
+            }
+        }
+        source
+    }
+
     #[test]
-    fn a_program_past_the_top_of_memory_is_an_error_not_a_panic() {
+    fn a_program_that_ends_at_the_top_of_basic_memory_fits() {
+        // $A000 - $0801 = 38,911 bytes: the program's end marker is the last
+        // thing at $9FFF.
+        let prog = tokenise(&program_of_size(38_911)).expect("fits exactly");
+        assert_eq!(prog.bytes.len(), 2 + 38_911);
+    }
+
+    #[test]
+    fn a_program_one_byte_past_basic_memory_is_refused() {
+        let error = tokenise(&program_of_size(38_912)).expect_err("one byte over");
+        assert_eq!(
+            (error.line, error.message.as_str()),
+            (
+                0,
+                "program is 38912 bytes, more than the 38911 bytes of BASIC memory \
+                 ($0801-$9FFF) on a C64"
+            )
+        );
+    }
+
+    #[test]
+    fn a_program_past_the_top_of_the_address_space_is_an_error_not_a_panic() {
         // 3,000 lines of ~25 bytes each run past $FFFF from $0801.
         let source: String = (1..=3000)
             .map(|n| format!("{n} PRINT \"XXXXXXXXXXXXXXXXXX\"\n"))
             .collect();
         let error = tokenise(&source).expect_err("too large");
-        assert_eq!(
-            (error.line, error.message.as_str()),
-            (0, "program too large for the C64's memory")
-        );
+        assert_eq!(error.line, 0);
+        assert!(error.message.starts_with("program is 81002 bytes"));
     }
 
     #[test]
