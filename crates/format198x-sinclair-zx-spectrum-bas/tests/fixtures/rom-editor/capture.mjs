@@ -30,6 +30,7 @@ const PROGRAM = [
   '90{PRINT}1E38;" ";1e-5;" ";2.5E+2;" ";1E-39;" ";2E-39;" ";1.E3',
   '100{PRINT}{BIN}0;" ";{BIN}1111111111111111;" ";{BIN}0 1',
   '110{LET}x=12.345:{LET}y=.001:{PRINT}x;" ";y',
+  '120{PRINT}{BIN};{BIN} ;{BIN}',
 ];
 // Lines the ROM refuses: a space inside a number's whole part or its
 // exponent digits ends the number, and a number too big for the calculator
