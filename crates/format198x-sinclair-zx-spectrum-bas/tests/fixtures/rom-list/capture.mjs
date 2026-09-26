@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROM_SHA1 = '5ea7c2b824672e914525d1d5c419d71b84a426a2';
+// The emulator version README.md records for this capture.
+const PACKAGE_VERSION = '0.4.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const pkg = process.env.EMU198X_ZX_SPECTRUM_PKG;
@@ -22,6 +24,11 @@ if (sha1 !== ROM_SHA1) {
 const emu = await import(path.join(pkg, 'emu198x_spectrum_web.js'));
 emu.initSync({ module: fs.readFileSync(path.join(pkg, 'emu198x_spectrum_web_bg.wasm')) });
 const version = JSON.parse(fs.readFileSync(path.join(pkg, 'package.json'), 'utf8')).version;
+if (version !== PACKAGE_VERSION) {
+  throw new Error(
+    `${pkg} is @emu198x/zx-spectrum ${version}; README.md records ${PACKAGE_VERSION} for this capture`,
+  );
+}
 
 const source = fs.readFileSync(path.join(here, 'cases.bas'), 'utf8');
 const numbers = source
