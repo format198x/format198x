@@ -4,9 +4,9 @@
 //! suitable for direct PRG import, and lists a PRG back out the way the C64's
 //! own LIST command prints it.
 //!
-//! Keywords tokenise wherever the C64's cruncher would tokenise them, with
-//! one difference: `?` is stored as the character, as petcat stores it,
-//! where the C64 stores the PRINT token.
+//! Keywords tokenise wherever the C64's cruncher would tokenise them, and `?`
+//! is stored as the PRINT token, as the C64 stores it. petcat differs here:
+//! it stores `?` as the character.
 
 mod error;
 mod list;
@@ -51,6 +51,7 @@ pub struct Piece {
 pub enum PieceKind {
     /// A keyword stored as one token byte, which this carries: 0x80 (END)
     /// to 0xCB (GO), including the operators `+ - * / ^ > = <` (0xAA–0xB3).
+    /// A `?` is a `Keyword(0x99)` (PRINT) piece whose text is `?`.
     Keyword(u8),
     /// A run of letters, with any digits or `$` that follow, not matched as
     /// a keyword. Keywords match anywhere outside strings, REM and DATA

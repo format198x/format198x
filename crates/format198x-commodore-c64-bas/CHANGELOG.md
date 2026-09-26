@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a PRG loading at `$0801`, byte-identical to petcat for every Code198x C64
   sample: keywords tokenise wherever the C64 would, `REM` text and `DATA`
   values stay literal, and lines are stored in number order.
+- `?` is stored as the PRINT token, as the C64's own tokeniser stores it.
+  The C64 ROM is the authority here; petcat stores `?` as the character.
 - `list` and `list_line`, which print a stored program as the C64's LIST
   does, and `listed_form`, which gives what LIST would print for a source
   listing.
