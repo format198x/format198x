@@ -1,10 +1,13 @@
-//! Commodore 64 BASIC V2 tokeniser.
+//! Commodore 64 BASIC V2 tokeniser and lister.
 //!
 //! Converts plain-text `.bas` files with line numbers into tokenised PRG bytes
-//! suitable for direct PRG import.
+//! suitable for direct PRG import, and lists a PRG back out the way the C64's
+//! own LIST command prints it.
 
+mod list;
 mod tokens;
 
+pub use list::{list, list_line, listed_form};
 use tokens::KEYWORDS;
 
 const BASIC_START: u16 = 0x0801;
@@ -14,6 +17,38 @@ const BASIC_START: u16 = 0x0801;
 pub struct BasicProgram {
     /// PRG bytes: load address, tokenised lines, end marker.
     pub bytes: Vec<u8>,
+}
+
+/// One stored piece of a line body, with where it came from in the source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Piece {
+    pub kind: PieceKind,
+    /// Bytes this piece stores (a token byte, or one or more PETSCII bytes).
+    pub bytes: Vec<u8>,
+    /// 0-based byte offset of the piece in the body text passed to `lex_body`.
+    pub column: usize,
+    /// The source text the piece came from.
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PieceKind {
+    Keyword(u8),
+    Name,
+    Number,
+    Str,
+    Rem,
+    Space,
+    Punct,
+}
+
+/// A listing line split into number and pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LexLine {
+    pub number: u16,
+    /// 0-based byte offset of the body within the source line.
+    pub body_column: usize,
+    pub pieces: Vec<Piece>,
 }
 
 /// Tokenises text BASIC source into C64 PRG format.
@@ -30,8 +65,13 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
             continue;
         }
 
-        let (line_num, rest) = parse_line_number(line, line_idx)?;
-        lines.push((line_num, tokenise_line(rest)));
+        let (line_num, body_start) = parse_line_number(line)
+            .map_err(|message| format!("Line {}: {message}", line_idx + 1))?;
+        let bytes: Vec<u8> = lex_body(&line[body_start..])
+            .into_iter()
+            .flat_map(|piece| piece.bytes)
+            .collect();
+        lines.push((line_num, bytes));
     }
 
     let mut output = vec![BASIC_START as u8, (BASIC_START >> 8) as u8];
@@ -55,82 +95,152 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, String> {
     Ok(BasicProgram { bytes: output })
 }
 
-fn parse_line_number(line: &str, line_idx: usize) -> Result<(u16, &str), String> {
-    let num_end = line
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(line.len());
-    if num_end == 0 {
-        return Err(format!(
-            "Line {}: expected a line number, got: {line}",
-            line_idx + 1
-        ));
-    }
-
-    let num: u32 = line[..num_end]
-        .parse()
-        .map_err(|err| format!("Line {}: invalid line number: {err}", line_idx + 1))?;
-    if num == 0 || num > 63_999 {
-        return Err(format!(
-            "Line {}: line number {num} out of range (1–63999)",
-            line_idx + 1
-        ));
-    }
-
-    let rest_start = if line[num_end..].starts_with(' ') {
-        num_end + 1
-    } else {
-        num_end
-    };
-
-    Ok((num as u16, &line[rest_start..]))
+/// Lex a single listing line into its line number and positioned pieces.
+///
+/// Only one space after the line number is treated as a separator; a second
+/// space is stored as part of the body, so it lists back out too.
+///
+/// # Errors
+/// Returns an error for a malformed or missing line number.
+pub fn lex_line(line: &str) -> Result<LexLine, String> {
+    let trimmed_end = line.trim_end();
+    let text = trimmed_end.trim_start();
+    let (number, body_start) = parse_line_number(text)?;
+    let leading_ws = trimmed_end.len() - text.len();
+    let body_column = leading_ws + body_start;
+    let pieces = lex_body(&text[body_start..]);
+    Ok(LexLine {
+        number,
+        body_column,
+        pieces,
+    })
 }
 
-fn tokenise_line(line: &str) -> Vec<u8> {
-    let bytes = line.as_bytes();
-    let mut output = Vec::new();
+/// Parses the line number at the start of `text` (already trimmed of
+/// surrounding whitespace). Returns the number and the byte offset in `text`
+/// where the body starts, after skipping exactly one space following the
+/// digits — a second space is left for the body to store.
+fn parse_line_number(text: &str) -> Result<(u16, usize), String> {
+    let digit_end = text.bytes().take_while(u8::is_ascii_digit).count();
+    if digit_end == 0 {
+        return Err(format!("expected a line number, got: {text}"));
+    }
+
+    let num: u32 = text[..digit_end]
+        .parse()
+        .map_err(|err| format!("invalid line number: {err}"))?;
+    if num == 0 || num > 63_999 {
+        return Err(format!("line number {num} out of range (1-63999)"));
+    }
+
+    let body_start = if text[digit_end..].starts_with(' ') {
+        digit_end + 1
+    } else {
+        digit_end
+    };
+
+    Ok((num as u16, body_start))
+}
+
+/// Lex a line body into positioned pieces. Byte-for-byte, concatenating the
+/// pieces' bytes reproduces what the original per-character tokeniser wrote,
+/// including its keyword-matching quirks (e.g. a word ending in a two-letter
+/// keyword such as `TO` at the very end of a line still tokenises as that
+/// keyword) — `tokenise` relies on this to stay byte-identical.
+fn lex_body(source: &str) -> Vec<Piece> {
+    let bytes = source.as_bytes();
+    let mut out: Vec<Piece> = Vec::new();
     let mut pos = 0usize;
-    let mut in_string = false;
-    let mut after_rem = false;
 
     while pos < bytes.len() {
         let ch = bytes[pos];
 
-        if in_string {
-            output.push(ascii_to_petscii(ch));
-            if ch == b'"' {
-                in_string = false;
-            }
-            pos += 1;
-            continue;
-        }
-
-        if after_rem {
-            output.push(ascii_to_petscii(ch));
-            pos += 1;
-            continue;
-        }
-
         if ch == b'"' {
-            in_string = true;
-            output.push(ch);
+            let start = pos;
             pos += 1;
+            while pos < bytes.len() && bytes[pos] != b'"' {
+                pos += 1;
+            }
+            if pos < bytes.len() {
+                pos += 1; // include the closing quote
+            }
+            out.push(Piece {
+                kind: PieceKind::Str,
+                bytes: bytes[start..pos]
+                    .iter()
+                    .copied()
+                    .map(ascii_to_petscii)
+                    .collect(),
+                column: start,
+                text: source[start..pos].to_string(),
+            });
             continue;
         }
 
         if let Some((token, keyword_len)) = match_keyword(&bytes[pos..]) {
-            output.push(token);
-            if token == 0x8F {
-                after_rem = true;
-            }
+            let start = pos;
+            out.push(Piece {
+                kind: PieceKind::Keyword(token),
+                bytes: vec![token],
+                column: start,
+                text: source[start..start + keyword_len].to_string(),
+            });
             pos += keyword_len;
+            if token == 0x8F {
+                // REM: the rest of the line is stored literally.
+                out.push(Piece {
+                    kind: PieceKind::Rem,
+                    bytes: bytes[pos..].iter().copied().map(ascii_to_petscii).collect(),
+                    column: pos,
+                    text: source[pos..].to_string(),
+                });
+                break;
+            }
             continue;
         }
 
-        output.push(ascii_to_petscii(ch));
+        // Continue a Name run onto a digit or `$` (e.g. `A1`, `A$`), but only
+        // when it is genuinely contiguous with a Name piece just written.
+        let continues_name = matches!(
+            out.last(),
+            Some(piece) if piece.kind == PieceKind::Name && piece.column + piece.bytes.len() == pos
+        ) && (ch.is_ascii_alphanumeric() || ch == b'$');
+        let kind = if continues_name {
+            PieceKind::Name
+        } else if ch.is_ascii_digit() {
+            PieceKind::Number
+        } else if ch.is_ascii_alphabetic() {
+            PieceKind::Name
+        } else if ch == b' ' {
+            PieceKind::Space
+        } else {
+            PieceKind::Punct
+        };
+
+        let byte = ascii_to_petscii(ch);
+        let extends_previous = matches!(kind, PieceKind::Name | PieceKind::Number)
+            && matches!(
+                out.last(),
+                Some(piece) if piece.kind == kind && piece.column + piece.bytes.len() == pos
+            );
+        if extends_previous {
+            let piece = out
+                .last_mut()
+                .expect("extends_previous is only true when out.last() matched above");
+            piece.bytes.push(byte);
+            piece.text.push(char::from(ch));
+        } else {
+            out.push(Piece {
+                kind,
+                bytes: vec![byte],
+                column: pos,
+                text: char::from(ch).to_string(),
+            });
+        }
         pos += 1;
     }
 
-    output
+    out
 }
 
 fn match_keyword(text: &[u8]) -> Option<(u8, usize)> {
@@ -235,5 +345,63 @@ mod tests {
         assert!(tokenise("0 PRINT \"BAD\"").is_err());
         assert!(tokenise("64000 PRINT \"BAD\"").is_err());
         assert!(tokenise("PRINT \"BAD\"").is_err());
+    }
+
+    #[test]
+    fn pieces_concatenate_to_the_stored_bytes() {
+        // Includes the mid-identifier keyword quirk that `tokenise` already
+        // had: "AUTO" followed by nothing alphanumeric tokenises its trailing
+        // "TO" as the TO keyword, because `match_keyword` only checks the
+        // character immediately after the match, not whether it is at a word
+        // start. `lex_body` must reproduce that, not smooth it over.
+        for src in [
+            "10 PRINT \"HELLO\"",
+            "20 GOTO 10",
+            "10 REM PRINT IS NOT TOKENISED",
+            "10 LET PRINTER=1",
+            "10 AUTO = 5",
+            "10 LET A1=A$+B$",
+        ] {
+            let body_start = src.find(' ').expect("space after line number") + 1;
+            let lexed: Vec<u8> = lex_body(&src[body_start..])
+                .into_iter()
+                .flat_map(|piece| piece.bytes)
+                .collect();
+            let full = tokenise(src).expect("tokenise");
+            assert_eq!(
+                &full.bytes[6..full.bytes.len() - 3],
+                lexed.as_slice(),
+                "{src}"
+            );
+        }
+    }
+
+    #[test]
+    fn lex_line_reports_kinds_and_columns() {
+        let line = lex_line("  20 IF A1=1 THEN PRINT \"X\":REM hi").expect("lex");
+        assert_eq!(line.number, 20);
+        assert_eq!(line.body_column, 5);
+        let kinds: Vec<PieceKind> = line.pieces.iter().map(|piece| piece.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PieceKind::Keyword(0x8B), // IF
+                PieceKind::Space,
+                PieceKind::Name,          // A1
+                PieceKind::Keyword(0xB2), // =
+                PieceKind::Number,        // 1
+                PieceKind::Space,
+                PieceKind::Keyword(0xA7), // THEN
+                PieceKind::Space,
+                PieceKind::Keyword(0x99), // PRINT
+                PieceKind::Space,
+                PieceKind::Str,           // "X"
+                PieceKind::Punct,         // :
+                PieceKind::Keyword(0x8F), // REM
+                PieceKind::Rem,
+            ]
+        );
+        let name = &line.pieces[2];
+        assert_eq!((name.column, name.text.as_str()), (3, "A1"));
     }
 }
