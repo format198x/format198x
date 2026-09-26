@@ -26,6 +26,14 @@ judges syntax, not this crate. `tokenise` and `parse` take the same numbered
 listing through an AST instead, for callers that want to inspect or verify
 the program's structure before serialising it.
 
+Spaces inside numbers and names follow the ROM's own readers. After a
+decimal point the ROM skips spaces, so `1.5 E3` is one number, 1500, stored
+with its spaces and one hidden value; a space in a number's whole part ends
+it, so `1 000` is an error, as the ROM rejects that line. Spaces after a
+number are stored before its hidden value, where the ROM puts them. A
+variable name runs on across spaces to a letter or digit, so `a 1` is the
+variable `a1`.
+
 ## List a program
 
 ```rust

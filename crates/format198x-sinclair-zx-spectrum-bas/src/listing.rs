@@ -33,9 +33,11 @@ pub enum PieceKind {
     /// to 0xFF (COPY), including the operators `<=` (0xC7), `>=` (0xC8)
     /// and `<>` (0xC9). [`crate::KEYWORD_NAMES`] gives its listed text.
     Keyword(u8),
-    /// A variable or other name, stored as its characters.
+    /// A variable or other name, stored as its characters, including any
+    /// spaces inside it (`a 1` is the variable `a1`).
     Name,
-    /// A number: its spelling, then 0x0E and its hidden five-byte value.
+    /// A number: its spelling as typed, including spaces inside it and any
+    /// after it, then 0x0E and its hidden five-byte value.
     Number,
     /// A string literal, including both quotation marks.
     Str,
@@ -102,11 +104,15 @@ pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
 /// Blank lines are skipped; every other line, including one starting `#`,
 /// must start with a line number. Keyword names ending in a letter or `$`
 /// need word boundaries; strings and REM text stay literal. Numeric
-/// spellings are retained with their hidden five-byte values appended. This
-/// bounded editor route excludes DEF FN (which needs parameter markers).
+/// spellings are retained with their hidden five-byte values appended, after
+/// any spaces that follow the number, where the ROM's editor puts them.
+/// Spaces inside numbers and names are read as the ROM reads them: `1.5 E3`
+/// is one number, `a 1` the variable `a1`. This bounded editor route
+/// excludes DEF FN (which needs parameter markers).
 ///
 /// # Errors
-/// Returns an error for unsupported characters, malformed numbers/strings,
+/// Returns an error for unsupported characters, malformed numbers/strings
+/// (including a space in a number's whole part, as in `1 000`),
 /// missing, duplicate or empty lines, unsupported DEF FN, or oversized output.
 /// BASIC grammar is intentionally left to the ROM; tokenisation is not validation.
 pub fn tokenise_listing(source: &str) -> Result<BasicProgram, ListingError> {
@@ -184,9 +190,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
         let ch = bytes[pos];
         if variable && ch.is_ascii_alphabetic() {
             let start = pos;
-            while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'$') {
-                pos += 1;
-            }
+            pos = name_end(source, pos, statement_start, printing);
             out.push(Piece {
                 kind: PieceKind::Name,
                 bytes: bytes[start..pos].to_vec(),
@@ -230,31 +234,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
                 text: source[pos..pos + operator.len()].to_string(),
             });
             pos += operator.len();
-        } else if let Some(&(keyword, token, _)) = KEYWORDS.iter().find(|(keyword, _, role)| {
-            let allowed = match role {
-                KeywordRole::Statement | KeywordRole::RestOfLine => statement_start,
-                KeywordRole::PrintItem => statement_start || printing,
-                _ => true,
-            };
-            if !allowed {
-                return false;
-            }
-            let word = keyword.trim_end();
-            let rest = &bytes[pos..];
-            // A word boundary only matters when the keyword ends in a letter
-            // or `$`: `OPEN #` and `CLOSE #` end in `#`, so the stream number
-            // may follow directly (`OPEN #4`), as LIST prints it.
-            let needs_boundary = word
-                .bytes()
-                .last()
-                .is_some_and(|b| b.is_ascii_alphabetic() || b == b'$');
-            rest.len() >= word.len()
-                && rest[..word.len()].eq_ignore_ascii_case(word.as_bytes())
-                && (!needs_boundary
-                    || rest
-                        .get(word.len())
-                        .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'$'))
-        }) {
+        } else if let Some((keyword, token)) = keyword_at(source, pos, statement_start, printing) {
             if token == 0xCE {
                 return Err("DEF FN is not supported by this editor yet".into());
             }
@@ -307,9 +287,7 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             binary = token == 0xC4;
         } else if ch.is_ascii_alphabetic() {
             let start = pos;
-            while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'$') {
-                pos += 1;
-            }
+            pos = name_end(source, pos, statement_start, printing);
             out.push(Piece {
                 kind: PieceKind::Name,
                 bytes: bytes[start..pos].to_vec(),
@@ -318,42 +296,20 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             });
             binary = false;
         } else if ch.is_ascii_digit()
-            || (ch == b'.' && bytes.get(pos + 1).is_some_and(u8::is_ascii_digit))
+            || (ch == b'.'
+                && bytes
+                    .get(skip_spaces(bytes, pos + 1))
+                    .is_some_and(u8::is_ascii_digit))
         {
             let start = pos;
-            while pos < bytes.len() && bytes[pos].is_ascii_digit() {
-                pos += 1;
-            }
-            if !binary && bytes.get(pos) == Some(&b'.') {
-                pos += 1;
-                while pos < bytes.len() && bytes[pos].is_ascii_digit() {
-                    pos += 1;
-                }
-            }
-            if !binary
-                && bytes
-                    .get(pos)
-                    .is_some_and(|b| b.eq_ignore_ascii_case(&b'e'))
-            {
-                pos += 1;
-                if bytes.get(pos).is_some_and(|b| *b == b'+' || *b == b'-') {
-                    pos += 1;
-                }
-                let digits = pos;
-                while pos < bytes.len() && bytes[pos].is_ascii_digit() {
-                    pos += 1;
-                }
-                if pos == digits {
-                    return Err("an exponent needs digits after E".into());
-                }
-            }
-            let spelling = &source[start..pos];
+            pos = number_end(source, pos, binary, statement_start, printing)?;
+            let digits: String = source[start..pos].chars().filter(|c| *c != ' ').collect();
             let value = if binary {
-                u16::from_str_radix(spelling, 2)
+                u16::from_str_radix(&digits, 2)
                     .map(f64::from)
                     .map_err(|_| "BIN needs up to 16 binary digits")?
             } else {
-                spelling.parse::<f64>().map_err(|_| "invalid number")?
+                digits.parse::<f64>().map_err(|_| "invalid number")?
             };
             if !value.is_finite()
                 || value >= 2.0_f64.powi(127)
@@ -361,6 +317,19 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             {
                 return Err("number is outside the Spectrum's range".into());
             }
+            // S-DECIMAL (268D) collects the character after the number with
+            // GET-CHAR, which skips spaces, and opens the room for the hidden
+            // form there: spaces after a number are stored before its 0x0E.
+            // A single space before a keyword the ROM spaces itself on LIST
+            // stays a Space piece, for the keyword branch to drop.
+            let after = skip_spaces(bytes, pos);
+            let dropped_before_keyword = after == pos + 1
+                && keyword_at(source, after, statement_start, printing)
+                    .is_some_and(|(_, token)| rom_leading_space(token));
+            if !dropped_before_keyword {
+                pos = after;
+            }
+            let spelling = &source[start..pos];
             let mut number_bytes = spelling.as_bytes().to_vec();
             number_bytes.push(14);
             number_bytes.extend_from_slice(&number_to_float5(value));
@@ -387,6 +356,158 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
         }
     }
     Ok(out)
+}
+
+/// The first position at or after `pos` that is not a space.
+fn skip_spaces(bytes: &[u8], pos: usize) -> usize {
+    pos + bytes
+        .get(pos..)
+        .map_or(0, |rest| rest.iter().take_while(|b| **b == b' ').count())
+}
+
+/// The keyword this lexer tokenises at `pos`, given the statement context.
+fn keyword_at(
+    source: &str,
+    pos: usize,
+    statement_start: bool,
+    printing: bool,
+) -> Option<(&'static str, u8)> {
+    let rest = source.as_bytes().get(pos..)?;
+    KEYWORDS
+        .iter()
+        .find(|(keyword, _, role)| {
+            let allowed = match role {
+                KeywordRole::Statement | KeywordRole::RestOfLine => statement_start,
+                KeywordRole::PrintItem => statement_start || printing,
+                _ => true,
+            };
+            if !allowed {
+                return false;
+            }
+            let word = keyword.trim_end();
+            // A word boundary only matters when the keyword ends in a letter
+            // or `$`: `OPEN #` and `CLOSE #` end in `#`, so the stream number
+            // may follow directly (`OPEN #4`), as LIST prints it.
+            let needs_boundary = word
+                .bytes()
+                .last()
+                .is_some_and(|b| b.is_ascii_alphabetic() || b == b'$');
+            rest.len() >= word.len()
+                && rest[..word.len()].eq_ignore_ascii_case(word.as_bytes())
+                && (!needs_boundary
+                    || rest
+                        .get(word.len())
+                        .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'$'))
+        })
+        .map(|&(keyword, token, _)| (keyword, token))
+}
+
+/// Where a variable name starting at `pos` ends. LOOK-VARS (28B2) reads a
+/// name with NEXT-CHAR (V-CHAR, 28D4), which skips spaces, so `a 1` and
+/// `a b` are the names `a1` and `ab`: the name runs on across spaces to a
+/// following letter or
+/// digit, unless that letter starts a keyword (typed on a Spectrum, it would
+/// be a token, not letters). A name ending in `$` is a string name and stops.
+fn name_end(source: &str, mut pos: usize, statement_start: bool, printing: bool) -> usize {
+    let bytes = source.as_bytes();
+    loop {
+        while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'$') {
+            pos += 1;
+        }
+        if bytes[pos - 1] == b'$' {
+            return pos;
+        }
+        let next = skip_spaces(bytes, pos);
+        let continues = bytes.get(next).is_some_and(|b| {
+            b.is_ascii_digit()
+                || (b.is_ascii_alphabetic()
+                    && keyword_at(source, next, statement_start, printing).is_none())
+        });
+        if next == pos || !continues {
+            return pos;
+        }
+        pos = next;
+    }
+}
+
+/// Digits from `pos`, running on across spaces to a further digit when
+/// `spaced`: the ROM's digit loops that step with NEXT-CHAR skip spaces, but
+/// INT-TO-FP (2D3B) steps with CH-ADD+1 (0074), which does not.
+fn digits_end(bytes: &[u8], mut pos: usize, spaced: bool) -> usize {
+    loop {
+        while bytes.get(pos).is_some_and(u8::is_ascii_digit) {
+            pos += 1;
+        }
+        let next = skip_spaces(bytes, pos);
+        if !spaced || next == pos || !bytes.get(next).is_some_and(u8::is_ascii_digit) {
+            return pos;
+        }
+        pos = next;
+    }
+}
+
+/// Where a number starting at `pos` ends, before any spaces that follow it,
+/// following DEC-TO-FP (2C9B):
+///
+/// - BIN digits (BIN-DIGIT, 2CA2) step with NEXT-CHAR, so spaces between
+///   them are skipped: `BIN 1 0 1` is 5.
+/// - Integer and exponent digits (INT-TO-FP, 2D3B) step with CH-ADD+1 and
+///   stop at a space: `1 000` is the number 1 followed by `000`, which the
+///   ROM's syntax check rejects, so a digit or point after a number is an
+///   error rather than a second number.
+/// - After the point, NEXT-CHAR and GET-CHAR (DECIMAL, 2CCB; NXT-DGT-1, 2CDA)
+///   skip spaces: `1. 5`, `1.5 5` and `. 5` are all one number, and so is the
+///   `E` part of `1.5 E3`.
+/// - E-FORMAT (2CEB) tests the character INT-TO-FP stopped at, so without a
+///   point the `E` must follow the digits directly: `1 E3` is not 1000.
+/// - After `E`, NEXT-CHAR skips spaces up to the sign and the first exponent
+///   digit (SIGN-FLAG, 2CF2); the exponent's digits go through INT-TO-FP.
+fn number_end(
+    source: &str,
+    pos: usize,
+    binary: bool,
+    statement_start: bool,
+    printing: bool,
+) -> Result<usize, String> {
+    let bytes = source.as_bytes();
+    if binary {
+        return Ok(digits_end(bytes, pos, true));
+    }
+    let mut pos = digits_end(bytes, pos, false);
+    let point = bytes.get(pos) == Some(&b'.');
+    if point {
+        pos += 1;
+        let next = skip_spaces(bytes, pos);
+        if bytes.get(next).is_some_and(u8::is_ascii_digit) {
+            pos = digits_end(bytes, next, true);
+        }
+    }
+    let e_at = if point { skip_spaces(bytes, pos) } else { pos };
+    // An `E` that starts a keyword (`EXP`) would be a token on a Spectrum.
+    if bytes
+        .get(e_at)
+        .is_some_and(|b| b.eq_ignore_ascii_case(&b'e'))
+        && keyword_at(source, e_at, statement_start, printing).is_none()
+    {
+        pos = skip_spaces(bytes, e_at + 1);
+        if bytes.get(pos).is_some_and(|b| *b == b'+' || *b == b'-') {
+            pos = skip_spaces(bytes, pos + 1);
+        }
+        let digits = pos;
+        pos = digits_end(bytes, pos, false);
+        if pos == digits {
+            return Err("an exponent needs digits after E".into());
+        }
+    }
+    // Whatever follows ends the number; a digit or point there starts
+    // another, which the ROM's syntax check rejects (`1 000`, `1E3 3`).
+    if bytes
+        .get(skip_spaces(bytes, pos))
+        .is_some_and(|b| b.is_ascii_digit() || *b == b'.')
+    {
+        return Err("remove the space inside this number: the ROM ends a number's whole part or exponent at a space".into());
+    }
+    Ok(pos)
 }
 
 #[cfg(test)]
@@ -607,11 +728,138 @@ mod tests {
             "10 FOR i=1TO 9STEP 2",
             "10 PRINT \"  THEN  \"",
             "10 PRINT 1e3;.5;BIN 101",
+            "10 PRINT 1.5 E3;. 5;BIN 1 0 1 ;7  ;1 :PRINT 2",
+            "10 LET a 1=2: PRINT a1;a b",
+            "10 IF a=1  THEN STOP",
         ];
         for source in cases.lines().chain(tricky) {
             let once = relisted(source);
             assert_eq!(relisted(&once), once, "{source}");
         }
+    }
+
+    /// The pieces of one line's body, as (kind, text) pairs.
+    fn pieces(line: &str) -> Vec<(PieceKind, String)> {
+        lex_line(line)
+            .expect("lex")
+            .pieces
+            .into_iter()
+            .map(|p| (p.kind, p.text))
+            .collect()
+    }
+
+    /// A number piece's stored bytes: its text, 0x0E and the value's form.
+    fn number(text: &str, value: f64) -> Vec<u8> {
+        let mut bytes = text.as_bytes().to_vec();
+        bytes.push(14);
+        bytes.extend_from_slice(&number_to_float5(value));
+        bytes
+    }
+
+    #[test]
+    fn spaces_after_the_point_stay_inside_one_number() {
+        // DEC-TO-FP reads a number's fraction and E part with NEXT-CHAR,
+        // which skips spaces, so each of these is one number with one hidden
+        // value, stored with its spaces as typed.
+        for (src, text, value) in [
+            ("10 PRINT 1.5 E3", "1.5 E3", 1500.0),
+            ("10 PRINT 1. 5", "1. 5", 1.5),
+            ("10 PRINT 1.5 5", "1.5 5", 1.55),
+            ("10 PRINT . 5", ". 5", 0.5),
+            ("10 PRINT 12.5 E 2", "12.5 E 2", 1250.0),
+            ("10 PRINT 1.5E- 3", "1.5E- 3", 0.0015),
+            ("10 PRINT 1.5 e + 3", "1.5 e + 3", 1500.0),
+            ("10 PRINT BIN 1 0 1", "1 0 1", 5.0),
+        ] {
+            let line = lex_line(src).expect(src);
+            let numbers: Vec<&Piece> = line
+                .pieces
+                .iter()
+                .filter(|p| p.kind == PieceKind::Number)
+                .collect();
+            assert_eq!(numbers.len(), 1, "{src}");
+            assert_eq!(numbers[0].text, text, "{src}");
+            assert_eq!(numbers[0].bytes, number(text, value), "{src}");
+        }
+    }
+
+    #[test]
+    fn a_space_in_a_whole_part_or_exponent_ends_the_number() {
+        // INT-TO-FP steps with CH-ADD+1, which does not skip spaces; the ROM
+        // then rejects the digits that follow, and so does the tokeniser.
+        for src in [
+            "10 PRINT 1 000",
+            "10 PRINT 1 .5",
+            "10 PRINT 1E3 3",
+            "10 PRINT 1.5 .5",
+        ] {
+            assert!(tokenise_listing(src).is_err(), "{src}");
+            assert!(listed_form(src).is_err(), "{src}");
+        }
+        // An E after a space is not an exponent without a point before it.
+        assert_eq!(
+            pieces("10 PRINT 1 E3"),
+            vec![
+                (PieceKind::Keyword(0xF5), "PRINT".to_string()),
+                (PieceKind::Number, "1 ".to_string()),
+                (PieceKind::Name, "E3".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn spaces_after_a_number_are_stored_before_its_hidden_value() {
+        // S-DECIMAL opens the room for the hidden form at GET-CHAR, past the
+        // spaces after the number.
+        let bytes = tokenise_listing("10 PRINT 1 :PRINT 7  ;2")
+            .expect("t")
+            .bytes;
+        let mut want = vec![0xF5];
+        want.extend(number("1 ", 1.0));
+        want.extend([b':', 0xF5]);
+        want.extend(number("7  ", 7.0));
+        want.push(b';');
+        want.extend(number("2", 2.0));
+        want.push(13);
+        assert_eq!(&bytes[4..], want.as_slice());
+        // A single space before THEN is still the one LIST supplies, so it
+        // is dropped; a second one is stored, before the hidden value.
+        let one = tokenise_listing("10 IF a=1 THEN STOP").expect("t").bytes;
+        assert!(one.windows(7).any(|w| w == number("1", 1.0).as_slice()));
+        assert!(one.windows(2).all(|w| w != [b' ', 0xCB]));
+        let two = tokenise_listing("10 IF a=1  THEN STOP").expect("t").bytes;
+        assert!(two.windows(9).any(|w| w == number("1  ", 1.0).as_slice()));
+    }
+
+    #[test]
+    fn a_name_runs_on_across_spaces_to_a_letter_or_digit() {
+        // LOOK-VARS reads a name with NEXT-CHAR, so `a 1` is the variable a1.
+        assert_eq!(
+            pieces("10 LET a 1=2: PRINT a1;a b"),
+            vec![
+                (PieceKind::Keyword(0xF1), "LET".to_string()),
+                (PieceKind::Name, "a 1".to_string()),
+                (PieceKind::Punct, "=".to_string()),
+                (PieceKind::Number, "2".to_string()),
+                (PieceKind::Punct, ":".to_string()),
+                (PieceKind::Keyword(0xF5), "PRINT".to_string()),
+                (PieceKind::Name, "a1".to_string()),
+                (PieceKind::Punct, ";".to_string()),
+                (PieceKind::Name, "a b".to_string()),
+            ]
+        );
+        // A keyword ends the name; a string name and an array's bracket
+        // are untouched.
+        assert_eq!(
+            pieces("10 IF a AND b THEN PRINT a$ ;x (1)")
+                .into_iter()
+                .filter(|(kind, _)| *kind == PieceKind::Name)
+                .map(|(_, text)| text)
+                .collect::<Vec<_>>(),
+            ["a", "b", "a$", "x"]
+        );
+        let tight = tokenise_listing("10 FOR i=1 TO n STEP 2").expect("t").bytes;
+        assert!(tight.contains(&0xCC) && tight.contains(&0xCD));
     }
 
     #[test]

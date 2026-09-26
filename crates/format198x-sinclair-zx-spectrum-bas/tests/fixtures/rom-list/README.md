@@ -55,6 +55,11 @@ it fails.
   with doubled spaces and on its own.
 - Lines 430–460: the trailing space after `LLIST`/`RETURN` mid-line, and
   `THEN`/`LINE` typed directly after a value with no source space.
+- Lines 470–490: spaces inside numbers (`1.5 E3`, `. 5`, `BIN 1 0 1`) and
+  names (`a 1`), and after numbers. This checks only how they list; what the
+  ROM stores for them, hidden numbers included, is checked by
+  [`../rom-editor`](../rom-editor/README.md), which types lines into the
+  ROM's own editor.
 - Lines 2010–2400: forty lines from the Code198x Spectrum BASIC samples
   (`code-samples/sinclair-zx-spectrum/basic/*/unit-*/*.bas`), renumbered.
 
