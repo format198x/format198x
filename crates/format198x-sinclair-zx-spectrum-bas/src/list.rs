@@ -164,12 +164,17 @@ pub fn list_line(number: u16, body: &[u8]) -> String {
 /// line, the number (big-endian), the length (little-endian), the body and
 /// `0x0D`, as [`crate::tokenise_listing`] returns.
 ///
+/// Listing stops, as the ROM's does (OUT-LINE1, 0x1865), at the end of the
+/// bytes or at a line whose number's high byte is 0x40 or more: that byte
+/// starts the variables area, so `program` may run on into VARS and the
+/// `0x80` end marker, as in a memory dump or a tape's program block.
+///
 /// # Errors
 /// Returns an error if the bytes end partway through a line.
 pub fn list(program: &[u8]) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     let mut at = 0;
-    while at < program.len() {
+    while program.get(at).is_some_and(|&high| high < 0x40) {
         let header = program
             .get(at..at + 4)
             .ok_or("program ends inside a line header")?;
@@ -215,6 +220,19 @@ mod tests {
         assert_eq!(KEYWORD_NAMES[0xF5 - 0xA5], "PRINT");
         assert_eq!(KEYWORD_NAMES[0xCB - 0xA5], "THEN");
         assert_eq!(KEYWORD_NAMES[0xEC - 0xA5], "GO TO");
+    }
+
+    #[test]
+    fn listing_stops_at_the_variables_area() {
+        let mut bytes = tokenise_listing("10 PRINT 1\n20 STOP")
+            .expect("tokenises")
+            .bytes;
+        // A numeric variable `a` holding 5 (0x61 + five-byte integer form),
+        // then the 0x80 end of the variables area.
+        bytes.extend_from_slice(&[0x61, 0x00, 0x00, 0x05, 0x00, 0x00, 0x80]);
+        assert_eq!(list(&bytes).expect("lists"), ["  10 PRINT 1", "  20 STOP "]);
+        // The high byte alone decides: 0x80 straight after the program also ends it.
+        assert_eq!(list(&[0x80]).expect("lists"), Vec::<String>::new());
     }
 
     #[test]
