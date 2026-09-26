@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0](https://github.com/format198x/format198x/releases/tag/format198x-commodore-c64-bas-v0.1.0) - 2026-09-26
+
 ### Added
 
 - Dependency-free tokenising of numbered Commodore 64 BASIC V2 listings into
