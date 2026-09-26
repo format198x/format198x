@@ -1,7 +1,8 @@
-//! LIST as the C64's own tokeniser stores it back out: each stored byte is
-//! either a token (0x80–0xCB) printed as its keyword text, or a PETSCII byte
-//! printed as its character. There is no ROM leading/trailing space logic to
-//! model here — unlike the Spectrum, the C64 stores exactly what LIST prints.
+//! LIST as the C64 ROM prints a stored program (LIST at $A69C, and its
+//! token printer at $A717, per Mapping the Commodore 64): outside quotes each token byte (0x80–0xCB) prints as its keyword
+//! text; inside quotes, and for every other byte, the stored character is
+//! printed as it is. There is no ROM leading/trailing space logic to model
+//! here — unlike the Spectrum, the C64 stores exactly what LIST prints.
 
 use crate::tokens::KEYWORDS;
 use crate::{ListingError, lex_line};
@@ -26,13 +27,26 @@ fn petscii_to_ascii(byte: u8) -> u8 {
 /// One line as LIST prints it: the line number, a space, then `body` with
 /// tokens expanded to keyword text. `body` excludes the line's own `0x00`
 /// terminator.
+///
+/// Like the ROM, LIST keeps a quote flag that each `"` toggles, and prints
+/// bytes inside quotes as they are, so a token-valued byte in a string is
+/// not expanded. The ROM does not treat REM text specially: a token-valued
+/// byte after REM is expanded, as on the machine.
+///
+/// Output is text, not a screen rendering: a byte that is neither a token
+/// nor printable ASCII (PETSCII graphics, colour and cursor codes, π, and
+/// the unassigned codes 0xCC–0xFE that crash the real LIST) is printed as
+/// the Unicode character with the same code point.
 pub fn list_line(number: u16, body: &[u8]) -> String {
     let mut out = format!("{number} ");
+    let mut quoted = false;
     for &byte in body {
-        if let Some(text) = keyword_text(byte) {
-            out.push_str(text);
-        } else {
-            out.push(char::from(petscii_to_ascii(byte)));
+        if byte == b'"' {
+            quoted = !quoted;
+        }
+        match keyword_text(byte).filter(|_| !quoted) {
+            Some(text) => out.push_str(text),
+            None => out.push(char::from(petscii_to_ascii(byte))),
         }
     }
     out
@@ -123,6 +137,21 @@ mod tests {
         let listed = listed_form("10  PRINT 1").expect("listed");
         assert_eq!(listed[0].1, "10  PRINT 1"); // the second space is stored, so it lists
         assert_eq!(listed_form("10 PRINT 1").expect("l")[0].1, "10 PRINT 1");
+    }
+
+    #[test]
+    fn token_bytes_inside_quotes_list_as_they_are() {
+        // PRINT"<0x93>" — 0x93 is the clear-screen code inside the string,
+        // and the LOAD token outside one.
+        let body = [0x99, b'"', 0x93, b'"', b':', 0x93];
+        assert_eq!(list_line(10, &body), "10 PRINT\"\u{93}\":LOAD");
+        // An unclosed quote keeps the rest of the line literal.
+        assert_eq!(list_line(20, &[b'"', 0x99]), "20 \"\u{99}");
+    }
+
+    #[test]
+    fn token_bytes_after_rem_are_expanded_as_the_rom_does() {
+        assert_eq!(list_line(10, &[0x8F, b' ', 0x99]), "10 REM PRINT");
     }
 
     #[test]
