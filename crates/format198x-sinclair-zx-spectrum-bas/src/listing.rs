@@ -4,6 +4,73 @@ use crate::tokens::KeywordRole;
 use crate::{BasicProgram, serialize::number_to_float5, tokens::KEYWORDS};
 use std::collections::BTreeMap;
 
+/// One stored piece of a line body, with where it came from in the source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Piece {
+    pub kind: PieceKind,
+    /// Bytes this piece stores (a token byte, text, or text + 0x0E + 5-byte float).
+    pub bytes: Vec<u8>,
+    /// 0-based byte offset of the piece in the body text passed to `lex_line`.
+    pub column: usize,
+    /// The source text the piece came from.
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PieceKind {
+    Keyword(u8),
+    Name,
+    Number,
+    Str,
+    Rem,
+    Space,
+    Punct,
+}
+
+/// A listing line split into number and pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LexLine {
+    pub number: u16,
+    /// 0-based byte offset of the body within the source line.
+    pub body_column: usize,
+    pub pieces: Vec<Piece>,
+}
+
+/// Lex a single listing line into its line number and positioned pieces.
+///
+/// # Errors
+/// Returns an error for unsupported characters, a malformed or missing line
+/// number, an empty body, or a malformed number/string within the body.
+pub fn lex_line(line: &str) -> Result<LexLine, String> {
+    let trimmed_end = line.trim_end_matches('\r');
+    let text = trimmed_end.trim();
+    if !text.bytes().all(|b| (32..=126).contains(&b)) {
+        return Err(
+            "use plain ASCII text; graphics and control codes are not supported here".into(),
+        );
+    }
+    let end = text.bytes().take_while(u8::is_ascii_digit).count();
+    let number: u16 = text[..end]
+        .parse()
+        .map_err(|_| "start with a line number from 1 to 9999".to_string())?;
+    if !(1..=9999).contains(&number) {
+        return Err("line number must be 1 to 9999".into());
+    }
+    let after_number = &text[end..];
+    let body = after_number.trim_start();
+    if body.is_empty() {
+        return Err("remove an entire line to delete it".into());
+    }
+    let leading_ws = trimmed_end.len() - trimmed_end.trim_start().len();
+    let body_column = leading_ws + end + (after_number.len() - body.len());
+    let pieces = lex_body(body)?;
+    Ok(LexLine {
+        number,
+        body_column,
+        pieces,
+    })
+}
+
 /// Convert a numbered ASCII listing to stored BASIC, ordered by line number.
 ///
 /// Keyword names need word boundaries; strings and REM text stay literal.
@@ -20,36 +87,21 @@ pub fn tokenise_listing(source: &str) -> Result<BasicProgram, String> {
     }
     let mut lines = BTreeMap::new();
     for (index, raw) in source.lines().enumerate() {
-        let text = raw.trim();
-        if text.is_empty() {
+        if raw.trim().is_empty() {
             continue;
         }
         let context = |message: &str| format!("Source line {}: {message}", index + 1);
-        if !text.bytes().all(|b| (32..=126).contains(&b)) {
-            return Err(context(
-                "use plain ASCII text; graphics and control codes are not supported here",
-            ));
-        }
-        let end = text.bytes().take_while(u8::is_ascii_digit).count();
-        let number: u16 = text[..end]
-            .parse()
-            .map_err(|_| context("start with a line number from 1 to 9999"))?;
-        if !(1..=9999).contains(&number) {
-            return Err(context("line number must be 1 to 9999"));
-        }
-        let body = text[end..].trim_start();
-        if body.is_empty() {
-            return Err(context("remove an entire line to delete it"));
-        }
-        let mut bytes = tokenise_body(body).map_err(|e| context(&e))?;
+        let lexed = lex_line(raw).map_err(|e| context(&e))?;
+        let mut bytes: Vec<u8> = lexed.pieces.into_iter().flat_map(|p| p.bytes).collect();
         bytes.push(13);
         let length = u16::try_from(bytes.len()).map_err(|_| context("line is too long"))?;
-        let mut line = number.to_be_bytes().to_vec();
+        let mut line = lexed.number.to_be_bytes().to_vec();
         line.extend_from_slice(&length.to_le_bytes());
         line.extend(bytes);
-        if lines.insert(number, line).is_some() {
+        if lines.insert(lexed.number, line).is_some() {
             return Err(context(&format!(
-                "line {number} appears twice; edit its existing line"
+                "line {} appears twice; edit its existing line",
+                lexed.number
             )));
         }
     }
@@ -63,7 +115,7 @@ pub fn tokenise_listing(source: &str) -> Result<BasicProgram, String> {
     Ok(BasicProgram { bytes })
 }
 
-fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
+fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
     let bytes = source.as_bytes();
     let mut out = Vec::new();
     let mut pos = 0;
@@ -78,7 +130,12 @@ fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
             while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'$') {
                 pos += 1;
             }
-            out.extend_from_slice(&bytes[start..pos]);
+            out.push(Piece {
+                kind: PieceKind::Name,
+                bytes: bytes[start..pos].to_vec(),
+                column: start,
+                text: source[start..pos].to_string(),
+            });
             variable = false;
             statement_start = false;
         } else if ch == b'"' {
@@ -91,15 +148,30 @@ fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
                 return Err("missing closing quotation mark".into());
             }
             pos += 1;
-            out.extend_from_slice(&bytes[start..pos]);
+            out.push(Piece {
+                kind: PieceKind::Str,
+                bytes: bytes[start..pos].to_vec(),
+                column: start,
+                text: source[start..pos].to_string(),
+            });
         } else if ch == b' ' {
-            out.push(ch);
+            out.push(Piece {
+                kind: PieceKind::Space,
+                bytes: vec![ch],
+                column: pos,
+                text: " ".to_string(),
+            });
             pos += 1;
         } else if let Some((operator, token)) = [("<=", 0xC7), (">=", 0xC8), ("<>", 0xC9)]
             .iter()
             .find(|(operator, _)| source[pos..].starts_with(operator))
         {
-            out.push(*token);
+            out.push(Piece {
+                kind: PieceKind::Keyword(*token),
+                bytes: vec![*token],
+                column: pos,
+                text: source[pos..pos + operator.len()].to_string(),
+            });
             pos += operator.len();
         } else if let Some(&(keyword, token, _)) = KEYWORDS.iter().find(|(keyword, _, role)| {
             let allowed = match role {
@@ -121,19 +193,31 @@ fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
             if token == 0xCE {
                 return Err("DEF FN is not supported by this editor yet".into());
             }
-            out.push(token);
+            let start = pos;
+            let word_len = keyword.trim_end().len();
+            out.push(Piece {
+                kind: PieceKind::Keyword(token),
+                bytes: vec![token],
+                column: start,
+                text: source[start..start + word_len].to_string(),
+            });
             if statement_start {
                 printing = token == 0xF5 || token == 0xEE || token == 0xE0;
             }
             statement_start = token == 0xCB;
             variable = matches!(token, 0xF1 | 0xEB | 0xF3 | 0xE9 | 0xE3);
-            pos += keyword.trim_end().len();
+            pos += word_len;
             // The ROM adds keyword display spacing. Do not duplicate it.
             if bytes.get(pos) == Some(&b' ') {
                 pos += 1;
             }
             if token == 0xEA {
-                out.extend_from_slice(&bytes[pos..]);
+                out.push(Piece {
+                    kind: PieceKind::Rem,
+                    bytes: bytes[pos..].to_vec(),
+                    column: pos,
+                    text: source[pos..].to_string(),
+                });
                 break;
             }
             binary = token == 0xC4;
@@ -142,7 +226,12 @@ fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
             while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'$') {
                 pos += 1;
             }
-            out.extend_from_slice(&bytes[start..pos]);
+            out.push(Piece {
+                kind: PieceKind::Name,
+                bytes: bytes[start..pos].to_vec(),
+                column: start,
+                text: source[start..pos].to_string(),
+            });
             binary = false;
         } else if ch.is_ascii_digit()
             || (ch == b'.' && bytes.get(pos + 1).is_some_and(u8::is_ascii_digit))
@@ -188,9 +277,15 @@ fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
             {
                 return Err("number is outside the Spectrum's range".into());
             }
-            out.extend_from_slice(spelling.as_bytes());
-            out.push(14);
-            out.extend_from_slice(&number_to_float5(value));
+            let mut number_bytes = spelling.as_bytes().to_vec();
+            number_bytes.push(14);
+            number_bytes.extend_from_slice(&number_to_float5(value));
+            out.push(Piece {
+                kind: PieceKind::Number,
+                bytes: number_bytes,
+                column: start,
+                text: spelling.to_string(),
+            });
             binary = false;
         } else {
             if ch == b':' {
@@ -198,7 +293,12 @@ fn tokenise_body(source: &str) -> Result<Vec<u8>, String> {
                 printing = false;
             }
             // Retain punctuation and mistakes, so the ROM sees what was entered.
-            out.push(ch);
+            out.push(Piece {
+                kind: PieceKind::Punct,
+                bytes: vec![ch],
+                column: pos,
+                text: (ch as char).to_string(),
+            });
             pos += 1;
         }
     }
@@ -243,5 +343,60 @@ mod tests {
         assert!(tokenise_listing("10 PRINT \"oops").is_err());
         assert!(tokenise_listing("10 PRINT 1e999").is_err());
         assert!(tokenise_listing("10 PRINT BIN 102").is_err());
+    }
+
+    #[test]
+    fn lex_line_reports_kinds_and_columns() {
+        // No space before THEN or REM: Task 5 stops storing those, and this test must hold either side of it.
+        let line = lex_line("  20 IF a=1THEN PRINT \"x\":REM hi").expect("lex");
+        assert_eq!(line.number, 20);
+        assert_eq!(line.body_column, 5);
+        let kinds: Vec<PieceKind> = line.pieces.iter().map(|p| p.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PieceKind::Keyword(0xFA),
+                PieceKind::Name,
+                PieceKind::Punct,
+                PieceKind::Number,
+                PieceKind::Keyword(0xCB),
+                PieceKind::Keyword(0xF5),
+                PieceKind::Str,
+                PieceKind::Punct,
+                PieceKind::Keyword(0xEA),
+                PieceKind::Rem,
+            ]
+        );
+        let name = &line.pieces[1];
+        assert_eq!((name.column, name.text.as_str()), (3, "a"));
+    }
+
+    #[test]
+    fn pieces_concatenate_to_the_stored_bytes() {
+        for src in [
+            "10 PRINT \"GO TO 12\": REM PRINT 99",
+            "20 IF x<>2 THEN PRINT x",
+            "10 LET cat=2",
+        ] {
+            let lexed: Vec<u8> = lex_line(src)
+                .expect("lex")
+                .pieces
+                .into_iter()
+                .flat_map(|p| p.bytes)
+                .collect();
+            let stored = tokenise_listing(src).expect("tokenise").bytes;
+            assert_eq!(&stored[4..stored.len() - 1], lexed.as_slice(), "{src}");
+        }
+    }
+
+    #[test]
+    fn crlf_and_trailing_blank_lines_tokenise_like_lf() {
+        let lf = tokenise_listing("10 PRINT 1\n20 GO TO 10\n")
+            .expect("lf")
+            .bytes;
+        let crlf = tokenise_listing("10 PRINT 1\r\n20 GO TO 10\r\n\r\n")
+            .expect("crlf")
+            .bytes;
+        assert_eq!(lf, crlf);
     }
 }
