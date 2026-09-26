@@ -142,15 +142,17 @@ fn parse_line_number(text: &str) -> Result<(u16, usize), String> {
     Ok((num as u16, body_start))
 }
 
-/// Lex a line body into positioned pieces. Byte-for-byte, concatenating the
-/// pieces' bytes reproduces what the original per-character tokeniser wrote,
-/// including its keyword-matching quirks (e.g. a word ending in a two-letter
-/// keyword such as `TO` at the very end of a line still tokenises as that
-/// keyword) — `tokenise` relies on this to stay byte-identical.
+/// Lex a line body into positioned pieces. Concatenating the pieces' bytes
+/// gives the stored line body, which `tokenise` relies on.
 fn lex_body(source: &str) -> Vec<Piece> {
     let bytes = source.as_bytes();
     let mut out: Vec<Piece> = Vec::new();
     let mut pos = 0usize;
+    // After DATA, the cruncher stores text literally up to the next `:`
+    // outside quotes, so DATA values are never tokenised. In the ROM
+    // (CRUNCH, $A57C) the DATA flag lives in $0F and only a `:` clears it; a
+    // quoted value inside DATA leaves it set.
+    let mut in_data = false;
 
     while pos < bytes.len() {
         let ch = bytes[pos];
@@ -177,7 +179,11 @@ fn lex_body(source: &str) -> Vec<Piece> {
             continue;
         }
 
-        if let Some((token, keyword_len)) = match_keyword(&bytes[pos..]) {
+        if ch == b':' {
+            in_data = false;
+        }
+
+        if let Some((token, keyword_len)) = match_keyword(&bytes[pos..]).filter(|_| !in_data) {
             let start = pos;
             out.push(Piece {
                 kind: PieceKind::Keyword(token),
@@ -186,6 +192,7 @@ fn lex_body(source: &str) -> Vec<Piece> {
                 text: source[start..start + keyword_len].to_string(),
             });
             pos += keyword_len;
+            in_data = token == 0x83;
             if token == 0x8F {
                 // REM: the rest of the line is stored literally.
                 out.push(Piece {
@@ -243,24 +250,17 @@ fn lex_body(source: &str) -> Vec<Piece> {
     out
 }
 
+/// The keyword starting at `text`, if any. Like the C64's own cruncher, this
+/// matches anywhere, with no word boundary: `GOTO10` and `FORI=1TO10`
+/// tokenise, and `SCORE` stores `S`, `C`, the `OR` token and `E`.
 fn match_keyword(text: &[u8]) -> Option<(u8, usize)> {
-    for &(keyword, token) in KEYWORDS {
-        if text.len() >= keyword.len()
-            && text[..keyword.len()].eq_ignore_ascii_case(keyword.as_bytes())
-        {
-            let last_kw = keyword.as_bytes()[keyword.len() - 1];
-            if (last_kw.is_ascii_alphabetic() || last_kw == b'$')
-                && let Some(&next) = text.get(keyword.len())
-                && (next.is_ascii_alphanumeric() || next == b'$')
-            {
-                continue;
-            }
-
-            return Some((token, keyword.len()));
-        }
-    }
-
-    None
+    KEYWORDS
+        .iter()
+        .find(|(keyword, _)| {
+            text.len() >= keyword.len()
+                && text[..keyword.len()].eq_ignore_ascii_case(keyword.as_bytes())
+        })
+        .map(|&(keyword, token)| (token, keyword.len()))
 }
 
 fn ascii_to_petscii(ch: u8) -> u8 {
@@ -318,12 +318,45 @@ mod tests {
         assert_eq!(&prog.bytes[quote_pos + 1..quote_pos + 5], b"GOTO");
     }
 
+    /// The stored body of a one-line program: after the 2-byte load address,
+    /// link and line number, up to the line's 0x00 terminator.
+    fn body(src: &str) -> Vec<u8> {
+        let bytes = tokenise(src).expect("should tokenise").bytes;
+        bytes[6..bytes.len() - 3].to_vec()
+    }
+
     #[test]
-    fn keyword_not_matched_as_prefix() {
-        let prog = tokenise("10 LET PRINTER=1").expect("should tokenise");
-        let after_header = &prog.bytes[6..];
-        assert!(after_header.contains(&0x88));
-        assert!(!after_header.contains(&0x99));
+    fn keywords_match_anywhere_like_the_c64() {
+        // Expected bytes are petcat 3's (`petcat -w2`, lowercased input),
+        // which tokenises these as the C64's own cruncher does.
+        assert_eq!(body("10 GOTO10"), [0x89, b'1', b'0']);
+        assert_eq!(
+            body("20 FORI=1TO10"),
+            [0x81, b'I', 0xB2, b'1', 0xA4, b'1', b'0']
+        );
+        assert_eq!(
+            body("30 IFA=1THEN20"),
+            [0x8B, b'A', 0xB2, b'1', 0xA7, b'2', b'0']
+        );
+        assert_eq!(body("40 SCORE=1"), [b'S', b'C', 0xB0, b'E', 0xB2, b'1']);
+        assert_eq!(
+            body("70 LET PRINTER=1"),
+            [0x88, b' ', 0x99, b'E', b'R', 0xB2, b'1']
+        );
+    }
+
+    #[test]
+    fn data_values_are_stored_literally_up_to_a_colon() {
+        // petcat 3 gives the same bytes for this line.
+        assert_eq!(
+            body("50 DATA TOAST,ORANGE:PRINTER"),
+            [&[0x83][..], b" TOAST,ORANGE:", &[0x99, b'E', b'R'][..]].concat()
+        );
+        // A colon inside a quoted DATA value does not end the DATA.
+        assert_eq!(
+            body("60 DATA \"A:PRINT\",1:PRINT"),
+            [&[0x83][..], b" \"A:PRINT\",1:", &[0x99][..]].concat()
+        );
     }
 
     #[test]
@@ -349,11 +382,6 @@ mod tests {
 
     #[test]
     fn pieces_concatenate_to_the_stored_bytes() {
-        // Includes the mid-identifier keyword quirk that `tokenise` already
-        // had: "AUTO" followed by nothing alphanumeric tokenises its trailing
-        // "TO" as the TO keyword, because `match_keyword` only checks the
-        // character immediately after the match, not whether it is at a word
-        // start. `lex_body` must reproduce that, not smooth it over.
         for src in [
             "10 PRINT \"HELLO\"",
             "20 GOTO 10",
