@@ -4,7 +4,7 @@
 [package]
 name = "format198x-sinclair-zx-spectrum-bas"
 description = "ZX Spectrum BASIC — tokenise numbered text listings into stored program bytes, and list them as the ROM does."
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

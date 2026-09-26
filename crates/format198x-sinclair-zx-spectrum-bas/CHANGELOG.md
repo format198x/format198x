@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-bas-v0.1.1...format198x-sinclair-zx-spectrum-bas-v0.1.2) - 2026-09-26
+
+### Fixed
+
+- store a hidden zero after a bare BIN, as the ROM does
+- compute hidden numbers with the ROM's own arithmetic
+- tokenise colour items after PLOT, DRAW and CIRCLE
+
 ## [0.1.1](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-bas-v0.1.0...format198x-sinclair-zx-spectrum-bas-v0.1.1) - 2026-09-26
 
 ### Fixed
