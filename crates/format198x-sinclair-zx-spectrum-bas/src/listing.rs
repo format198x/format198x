@@ -37,7 +37,9 @@ pub enum PieceKind {
     /// spaces inside it (`a 1` is the variable `a1`).
     Name,
     /// A number: its spelling as typed, including spaces inside it and any
-    /// after it, then 0x0E and its hidden five-byte value.
+    /// after it, then 0x0E and its hidden five-byte value. After a `BIN`
+    /// with no digits, which the ROM gives the value 0, the spelling is only
+    /// the spaces after `BIN`, and may be empty.
     Number,
     /// A string literal, including both quotation marks.
     Str,
@@ -285,6 +287,25 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
                 break;
             }
             binary = token == 0xC4;
+            if binary
+                && !bytes
+                    .get(skip_spaces(bytes, pos))
+                    .is_some_and(u8::is_ascii_digit)
+            {
+                // BIN with no digits: BIN-END (2CB3) stacks zero, and S-BIN,
+                // which is S-DECIMAL, inserts it as for any number.
+                let (piece, end) = number_piece(
+                    source,
+                    pos,
+                    pos,
+                    rom_number::bin_to_fp(0),
+                    statement_start,
+                    items,
+                );
+                out.push(piece);
+                pos = end;
+                binary = false;
+            }
         } else if ch.is_ascii_alphabetic() {
             let start = pos;
             pos = name_end(source, pos, statement_start, items);
@@ -314,28 +335,9 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
                 rom_number::dec_to_fp(&digits)
                     .map_err(|_| "number is outside the Spectrum's range")?
             };
-            // S-DECIMAL (268D) collects the character after the number with
-            // GET-CHAR, which skips spaces, and opens the room for the hidden
-            // form there: spaces after a number are stored before its 0x0E.
-            // A single space before a keyword the ROM spaces itself on LIST
-            // stays a Space piece, for the keyword branch to drop.
-            let after = skip_spaces(bytes, pos);
-            let dropped_before_keyword = after == pos + 1
-                && keyword_at(source, after, statement_start, items)
-                    .is_some_and(|(_, token)| rom_leading_space(token));
-            if !dropped_before_keyword {
-                pos = after;
-            }
-            let spelling = &source[start..pos];
-            let mut number_bytes = spelling.as_bytes().to_vec();
-            number_bytes.push(14);
-            number_bytes.extend_from_slice(&hidden);
-            out.push(Piece {
-                kind: PieceKind::Number,
-                bytes: number_bytes,
-                column: start,
-                text: spelling.to_string(),
-            });
+            let (piece, end) = number_piece(source, start, pos, hidden, statement_start, items);
+            out.push(piece);
+            pos = end;
             binary = false;
         } else {
             if ch == b':' {
@@ -387,6 +389,38 @@ impl Items {
             Self::Colour => (0xD9..=0xDE).contains(&token),
         }
     }
+}
+
+/// A Number piece for the spelling from `start` to `end`, taking in the
+/// spaces after it, and where the piece ends. S-DECIMAL (268D) collects the
+/// character after a number with GET-CHAR, which skips spaces, and opens the
+/// room for the hidden form there, so spaces after a number are stored
+/// before its 0x0E. A single space before a keyword the ROM spaces itself on
+/// LIST is left for the keyword branch to drop.
+fn number_piece(
+    source: &str,
+    start: usize,
+    end: usize,
+    hidden: [u8; 5],
+    statement_start: bool,
+    items: Items,
+) -> (Piece, usize) {
+    let after = skip_spaces(source.as_bytes(), end);
+    let dropped_before_keyword = after == end + 1
+        && keyword_at(source, after, statement_start, items)
+            .is_some_and(|(_, token)| rom_leading_space(token));
+    let end = if dropped_before_keyword { end } else { after };
+    let spelling = &source[start..end];
+    let mut bytes = spelling.as_bytes().to_vec();
+    bytes.push(14);
+    bytes.extend_from_slice(&hidden);
+    let piece = Piece {
+        kind: PieceKind::Number,
+        bytes,
+        column: start,
+        text: spelling.to_string(),
+    };
+    (piece, end)
 }
 
 /// The first position at or after `pos` that is not a space.
@@ -760,6 +794,7 @@ mod tests {
             "10 PRINT \"  THEN  \"",
             "10 PRINT 1e3;.5;BIN 101",
             "10 PRINT 1.5 E3;. 5;BIN 1 0 1 ;7  ;1 :PRINT 2",
+            "10 PRINT BIN ;BIN  ;BIN",
             "10 LET a 1=2: PRINT a1;a b",
             "10 IF a=1  THEN STOP",
             "10 PLOT INK 7; OVER 1;x,y: DRAW PAPER 1;3,4: CIRCLE BRIGHT 1;9,9,5",
@@ -873,6 +908,26 @@ mod tests {
         assert!(
             two.windows(9)
                 .any(|w| w == number("1  ", int(1)).as_slice())
+        );
+    }
+
+    #[test]
+    fn a_bare_bin_stores_a_hidden_zero() {
+        // Typed in, `PRINT BIN;2` is stored C4 0E 00 00 00 00 00 ; ...
+        let bytes = tokenise_listing("10 PRINT BIN ;2").expect("t").bytes;
+        let mut want = vec![0xF5, 0xC4];
+        want.extend(number("", int(0)));
+        want.push(b';');
+        want.extend(number("2", int(2)));
+        want.push(13);
+        assert_eq!(&bytes[4..], want.as_slice());
+        assert_eq!(
+            pieces("10 PRINT BIN")[2],
+            (PieceKind::Number, String::new())
+        );
+        assert_eq!(
+            listed_form("10 PRINT BIN ;2").expect("l")[0].1,
+            "  10 PRINT BIN ;2"
         );
     }
 
