@@ -78,8 +78,9 @@ pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
 
 /// Convert a numbered ASCII listing to stored BASIC, ordered by line number.
 ///
-/// Keyword names need word boundaries; strings and REM text stay literal.
-/// Numeric spellings are retained with their hidden five-byte values appended.
+/// Blank lines are skipped; every other line, including one starting `#`,
+/// must start with a line number. Keyword names ending in a letter or `$`
+/// need word boundaries; strings and REM text stay literal. Numeric spellings are retained with their hidden five-byte values appended.
 /// This bounded editor route excludes DEF FN (which needs parameter markers).
 ///
 /// # Errors
@@ -464,6 +465,16 @@ mod tests {
             (empty.line, empty.to_string().as_str()),
             (0, "Enter at least one numbered BASIC line")
         );
+    }
+
+    #[test]
+    fn blank_lines_are_skipped_and_comment_lines_are_errors() {
+        assert!(tokenise_listing("\n  \n10 CLS\n").is_ok());
+        for source in ["# comment\n10 CLS", "10 CLS\n# comment"] {
+            let line = if source.starts_with('#') { 1 } else { 2 };
+            assert_eq!(tokenise_listing(source).expect_err(source).line, line);
+            assert_eq!(listed_form(source).expect_err(source).line, line);
+        }
     }
 
     #[test]

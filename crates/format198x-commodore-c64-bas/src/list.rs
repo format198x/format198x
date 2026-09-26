@@ -72,15 +72,15 @@ pub fn list(prg: &[u8]) -> Result<Vec<String>, String> {
 
 /// Convert a text listing to the lines LIST would print for it, in source
 /// order, alongside each line's 0-based source line index. Blank source
-/// lines and `#`-prefixed comment lines are skipped, matching [`crate::tokenise`].
+/// lines are skipped and any other line must start with a line number,
+/// matching [`crate::tokenise`].
 ///
 /// # Errors
 /// Returns an error under the same conditions as [`lex_line`].
 pub fn listed_form(source: &str) -> Result<Vec<(usize, String)>, ListingError> {
     let mut out = Vec::new();
     for (index, raw) in source.lines().enumerate() {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        if raw.trim().is_empty() {
             continue;
         }
         let lexed = lex_line(raw).map_err(|e| ListingError::new(index + 1, e.message))?;
@@ -151,10 +151,14 @@ mod tests {
     }
 
     #[test]
-    fn listed_form_skips_blank_and_comment_lines() {
-        let listed = listed_form("# comment\n\n10 END\n").expect("listed");
+    fn listed_form_skips_blank_lines_and_rejects_comment_lines() {
+        let listed = listed_form("\n\n10 END\n").expect("listed");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0], (2, "10 END".to_string()));
+        assert_eq!(
+            listed_form("# comment\n10 END").expect_err("comment").line,
+            1
+        );
     }
 
     #[test]
