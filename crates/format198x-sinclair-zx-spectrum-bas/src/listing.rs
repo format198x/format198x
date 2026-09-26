@@ -7,35 +7,55 @@ use crate::{BasicProgram, serialize::number_to_float5, tokens::KEYWORDS};
 use std::collections::BTreeMap;
 
 /// One stored piece of a line body, with where it came from in the source.
+///
+/// Concatenating the `bytes` of a line's pieces gives the stored line body,
+/// without its line number, length or closing `0x0D`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Piece {
+    /// What sort of text this piece is.
     pub kind: PieceKind,
     /// Bytes this piece stores (a token byte, text, or text + 0x0E + 5-byte float).
     pub bytes: Vec<u8>,
-    /// 0-based byte offset of the piece in the body text passed to `lex_line`.
+    /// 0-based byte offset of the piece within the line body (the text after
+    /// the line number and its following spaces). Add
+    /// [`LexLine::body_column`] for the offset within the source line.
     pub column: usize,
-    /// The source text the piece came from.
+    /// The source text the piece came from. A keyword's text is as typed
+    /// (any case, without the spaces the lexer absorbs around it).
     pub text: String,
 }
 
+/// What sort of text a [`Piece`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PieceKind {
+    /// A keyword stored as one token byte, which this carries: 0xA5 (RND)
+    /// to 0xFF (COPY), including the operators `<=` (0xC7), `>=` (0xC8)
+    /// and `<>` (0xC9). [`crate::KEYWORD_NAMES`] gives its listed text.
     Keyword(u8),
+    /// A variable or other name, stored as its characters.
     Name,
+    /// A number: its spelling, then 0x0E and its hidden five-byte value.
     Number,
+    /// A string literal, including both quotation marks.
     Str,
+    /// The text after REM, to the end of the line, stored as typed.
     Rem,
+    /// One stored space.
     Space,
+    /// Any other single character: punctuation, operators, and characters
+    /// the ROM will judge, such as a stray `$`.
     Punct,
 }
 
 /// A listing line split into number and pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexLine {
+    /// The line number, 1 to 9999.
     pub number: u16,
     /// 0-based byte offset of the body within the source line.
     pub body_column: usize,
+    /// The body's pieces, in source order.
     pub pieces: Vec<Piece>,
 }
 
@@ -131,6 +151,10 @@ pub fn tokenise_listing(source: &str) -> Result<BasicProgram, ListingError> {
 /// Convert a text listing to the lines LIST would print for it, in source
 /// order, alongside each line's 0-based source line index. Blank source lines
 /// are skipped, matching [`tokenise_listing`].
+///
+/// Each line is exactly what [`crate::list_line`] prints, including the
+/// space the ROM prints after a keyword that ends the line (`  10 STOP `).
+/// Callers comparing against source text usually want to trim it.
 ///
 /// # Errors
 /// Returns an error under the same conditions as [`lex_line`].

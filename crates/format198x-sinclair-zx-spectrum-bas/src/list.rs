@@ -129,6 +129,16 @@ fn rom_trailing_space(token: u8) -> bool {
 
 /// One line as LIST prints it, without screen wrapping. `body` runs up to but
 /// excluding the line's `0x0D`.
+///
+/// Output is text, not a screen rendering. Token bytes (0xA5 and up) print
+/// as keywords with the ROM's spacing, and each number's hidden five-byte
+/// value is skipped; every other byte prints as the Unicode character with
+/// the same code. That is right for printable ASCII (0x20–0x7E) except 0x60,
+/// which the Spectrum shows as `£`. The rest is not rendered: 0x7F (`©`),
+/// block graphics (0x80–0x8F), user-defined graphics (0x90–0xA4), and the
+/// colour and position control codes 0x10–0x17 with their parameter bytes
+/// all come out as raw code points. [`crate::tokenise_listing`] accepts only printable
+/// ASCII, so its output never holds them.
 pub fn list_line(number: u16, body: &[u8]) -> String {
     let mut out = format!("{number:>4}");
     // FLAGS bit 0 after OUT-LINE: reset, so a leading space is allowed.
