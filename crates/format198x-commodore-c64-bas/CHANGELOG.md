@@ -18,4 +18,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listing.
 - `lex_line`, which splits a source line into positioned, classified pieces.
 - `ListingError`, a typed error carrying the 1-based source line apart from
-  its message.
+  its message, returned by every listing function including `list`.

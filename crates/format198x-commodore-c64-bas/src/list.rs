@@ -56,28 +56,29 @@ pub fn list_line(number: u16, body: &[u8]) -> String {
 /// including its 2-byte load address.
 ///
 /// # Errors
-/// Returns an error if the bytes end partway through a line's link, header,
-/// or body.
-pub fn list(prg: &[u8]) -> Result<Vec<String>, String> {
+/// Returns a [`ListingError`] if the bytes end partway through a line's
+/// link, header, or body. It reads bytes, not source text, so the error's
+/// `line` is 0.
+pub fn list(prg: &[u8]) -> Result<Vec<String>, ListingError> {
     let mut lines = Vec::new();
     let mut at = 2; // skip the 2-byte load address
     loop {
         let link = prg
             .get(at..at + 2)
-            .ok_or("program ends inside a line's next-line link")?;
+            .ok_or_else(|| ListingError::new(0, "program ends inside a line's next-line link"))?;
         if link == [0x00, 0x00] {
             break;
         }
         let header = prg
             .get(at + 2..at + 4)
-            .ok_or("program ends inside a line header")?;
+            .ok_or_else(|| ListingError::new(0, "program ends inside a line header"))?;
         let number = u16::from_le_bytes([header[0], header[1]]);
         let body_start = at + 4;
         let body_end = prg
             .get(body_start..)
             .and_then(|rest| rest.iter().position(|&b| b == 0x00))
             .map(|offset| body_start + offset)
-            .ok_or("program ends inside a line body")?;
+            .ok_or_else(|| ListingError::new(0, "program ends inside a line body"))?;
         lines.push(list_line(number, &prg[body_start..body_end]));
         at = body_end + 1;
     }
@@ -165,8 +166,13 @@ mod tests {
     #[test]
     fn truncated_programs_are_errors() {
         let prg = tokenise("10 PRINT 1").expect("tokenise").bytes;
-        assert!(list(&prg[..3]).is_err());
-        assert!(list(&prg[..prg.len() - 1]).is_err());
+        let link = list(&prg[..3]).expect_err("link");
+        assert_eq!(
+            link,
+            ListingError::new(0, "program ends inside a line's next-line link")
+        );
+        let body = list(&prg[..prg.len() - 3]).expect_err("body");
+        assert_eq!(body.to_string(), "program ends inside a line body");
     }
 
     #[test]
