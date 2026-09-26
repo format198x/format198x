@@ -41,10 +41,14 @@
  400 REM a REM with PRINT and GO TO
  410 REM  two  spaces
  420 REM
+ 430 LLIST : STOP
+ 440 RETURN : STOP
+ 450 IF a=1 THEN STOP
+ 460 SAVE "x" LINE 10
 1000 PRINT "one thousand"
 2010 BORDER 0: PAPER 0: INK 7: CLS
 2020 CLS : PRINT "Thanks for playing!"
-2030 LET p = INT (RND* 4) + 1
+2030 LET p = INT (RND*4) + 1
 2040 FOR r = 2 TO 9: PRINT AT r, 1; "       1      ": NEXT r
 2050 IF d$ = "E" OR d$ = "e" THEN LET dest = e(rm)
 2060 IF alt = 0 AND spd <= 2 THEN PRINT AT 10, 8; "PERFECT LANDING!": STOP
@@ -53,7 +57,7 @@
 2090 FOR j = 0 TO 7: READ b: POKE USR "A" + j, b: NEXT j
 2100 FOR i = 1 TO 4: LET g(i) = VAL g$(i): NEXT i
 2110 FOR i = 1 TO LEN d$: PRINT d$(i); " ";: NEXT i
-2120 FOR i = 1 TO 20: PLOT INT (RND* 256), INT (RND* 100) + 60: NEXT i
+2120 FOR i = 1 TO 20: PLOT INT (RND*256), INT (RND*100) + 60: NEXT i
 2130 FOR j = 1 TO fuel: PRINT INK 4; CHR$ 143;: NEXT j
 2140 CIRCLE 128, 44, 10: CIRCLE 128, 44, 6: PLOT 128, 44: DRAW 7, 7: PLOT 128, 44: DRAW 0, 10
 2150 DIM n(20): DIM s(20): DIM e(20): DIM w(20)
@@ -78,7 +82,7 @@
 2340 NEXT i
 2350 IF guesses > 30 THEN GO TO 720
 2360 PAPER 7: INK 0
-2370 FOR i = 1 TO 4: LET c(i) = INT (RND* 6) + 1: NEXT i
+2370 FOR i = 1 TO 4: LET c(i) = INT (RND*6) + 1: NEXT i
 2380 IF b(9) = 0 THEN LET mv = 9: GO TO 850
 2390 PRINT AT 11, 2; "Population: "; pop; "  Grain: "; grain
 2400 IF d$(i) <> "_" THEN INK 4: PRINT d$(i); " ";

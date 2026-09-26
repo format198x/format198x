@@ -20,7 +20,7 @@ mod list;
 mod listing;
 pub use list::{KEYWORD_NAMES, list, list_line};
 mod parser;
-pub use listing::{LexLine, Piece, PieceKind, lex_line, tokenise_listing};
+pub use listing::{LexLine, Piece, PieceKind, lex_line, listed_form, tokenise_listing};
 mod serialize;
 mod tokens;
 

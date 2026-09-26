@@ -1,5 +1,6 @@
 //! Text-preserving conversion for editable listings. The ROM judges syntax;
 //! unlike the analysis AST, this path never invents expressions or drops text.
+use crate::list::{list_line, rom_leading_space};
 use crate::tokens::KeywordRole;
 use crate::{BasicProgram, serialize::number_to_float5, tokens::KEYWORDS};
 use std::collections::BTreeMap;
@@ -115,6 +116,26 @@ pub fn tokenise_listing(source: &str) -> Result<BasicProgram, String> {
     Ok(BasicProgram { bytes })
 }
 
+/// Convert a text listing to the lines LIST would print for it, in source
+/// order, alongside each line's 0-based source line index. Blank source lines
+/// are skipped, matching [`tokenise_listing`].
+///
+/// # Errors
+/// Returns an error under the same conditions as [`lex_line`].
+pub fn listed_form(source: &str) -> Result<Vec<(usize, String)>, String> {
+    let mut out = Vec::new();
+    for (index, raw) in source.lines().enumerate() {
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let context = |message: &str| format!("Source line {}: {message}", index + 1);
+        let lexed = lex_line(raw).map_err(|e| context(&e))?;
+        let bytes: Vec<u8> = lexed.pieces.into_iter().flat_map(|p| p.bytes).collect();
+        out.push((index, list_line(lexed.number, &bytes)));
+    }
+    Ok(out)
+}
+
 fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
     let bytes = source.as_bytes();
     let mut out = Vec::new();
@@ -195,6 +216,14 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             }
             let start = pos;
             let word_len = keyword.trim_end().len();
+            // The ROM prints a leading space before this keyword itself when
+            // listing (PO-SEARCH); a source space serving that purpose is
+            // redundant, so drop it rather than store it twice over.
+            if rom_leading_space(token)
+                && matches!(out.last(), Some(p) if p.kind == PieceKind::Space && p.bytes == *b" ")
+            {
+                out.pop();
+            }
             out.push(Piece {
                 kind: PieceKind::Keyword(token),
                 bytes: vec![token],
@@ -207,8 +236,21 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             statement_start = token == 0xCB;
             variable = matches!(token, 0xF1 | 0xEB | 0xF3 | 0xE9 | 0xE3);
             pos += word_len;
-            // The ROM adds keyword display spacing. Do not duplicate it.
-            if bytes.get(pos) == Some(&b' ') {
+            // A source space right after a keyword is dropped, matching the
+            // `@emu198x/zx-spectrum` tokeniser's own installer (see
+            // `tests/fixtures/rom-list/README.md`): every keyword absorbs one
+            // trailing space except RND, INKEY$ and PI, which take no
+            // arguments and get no ROM-side spacing in either direction, so a
+            // source space after them is real content that must be kept.
+            // (`list::rom_trailing_space` looks like the natural predicate
+            // here, since it names the same three tokens as exceptions, but
+            // it answers a different question — whether LIST prints a space
+            // after the token — and disagrees for OPEN # / CLOSE #: LIST adds
+            // no space there, yet the installer still absorbs one on entry,
+            // confirmed against the genuine ROM by the unchanged `OPEN #4`
+            // fixture case. Reusing it here would silently add a stored byte
+            // that the existing rom-list fixture proves is wrong.)
+            if !matches!(token, 0xA5..=0xA7) && bytes.get(pos) == Some(&b' ') {
                 pos += 1;
             }
             if token == 0xEA {
@@ -311,7 +353,9 @@ mod tests {
     #[test]
     fn literal_text_and_unknown_input_are_not_rewritten() {
         let result = tokenise_listing("10 PRINT \"GO TO 12\": REM PRINT 99").expect("listing");
-        assert_eq!(&result.bytes[4..], b"\xF5\"GO TO 12\": \xEAPRINT 99\r");
+        // No space before REM: Task 5 stops storing it, since the ROM supplies
+        // it on LIST (REM starts with a letter, so `rom_leading_space` holds).
+        assert_eq!(&result.bytes[4..], b"\xF5\"GO TO 12\":\xEAPRINT 99\r");
         assert!(result.bytes.windows(8).any(|w| w == b"GO TO 12"));
         assert!(result.bytes.windows(8).any(|w| w == b"PRINT 99"));
         assert!(!result.bytes.contains(&14));
@@ -398,5 +442,56 @@ mod tests {
             .expect("crlf")
             .bytes;
         assert_eq!(lf, crlf);
+    }
+
+    #[test]
+    fn a_space_the_rom_supplies_before_a_keyword_is_not_stored() {
+        let spaced = tokenise_listing("10 IF a=1 THEN STOP")
+            .expect("spaced")
+            .bytes;
+        let tight = tokenise_listing("10 IF a=1THEN STOP").expect("tight").bytes;
+        assert_eq!(spaced, tight);
+    }
+
+    #[test]
+    fn spaces_the_rom_does_not_supply_are_kept() {
+        // `<=` gets no leading space from the ROM, and strings/REM are content.
+        let b = tokenise_listing("10 IF a <= b THEN PRINT \"a  THEN\": REM  x")
+            .expect("t")
+            .bytes;
+        assert!(
+            b.windows(2).any(|w| w == [b' ', 0xC7]),
+            "space before <= kept"
+        );
+        assert!(b.windows(7).any(|w| w == b"a  THEN"), "string untouched");
+    }
+
+    #[test]
+    fn listed_form_round_trips_canonical_lines() {
+        let src =
+            "  10 PRINT CHR$ (147)\n  20 IF a=1 THEN GO TO 20\n  30 PRINT \"a = b\";INKEY$;RND";
+        let listed = listed_form(src).expect("listed");
+        for ((_, got), want) in listed.iter().zip(src.lines()) {
+            assert_eq!(got.trim_end(), want);
+        }
+    }
+
+    #[test]
+    fn a_space_after_a_no_trailing_space_keyword_is_kept() {
+        // RND, INKEY$ and PI get no automatic trailing space from the ROM, so a
+        // source space after them must be stored and must list back unchanged.
+        let with_space = tokenise_listing("10 PRINT RND * 4").expect("spaced").bytes;
+        let tight = tokenise_listing("10 PRINT RND*4").expect("tight").bytes;
+        assert_ne!(with_space, tight);
+        assert!(
+            !tight.windows(2).any(|w| w == [0xA5, b' ']),
+            "no space stored after RND when source has none"
+        );
+        assert!(
+            with_space.windows(2).any(|w| w == [0xA5, b' ']),
+            "space stored after RND when source has one"
+        );
+        let listed = listed_form("10 PRINT RND * 4").expect("listed");
+        assert_eq!(listed[0].1.trim_end(), "  10 PRINT RND * 4");
     }
 }
