@@ -25,10 +25,23 @@ const PROGRAM = [
   '40{PRINT}1 :{PRINT}2',
   '50{PLOT}{INK}7;{OVER}1;10,20:{DRAW}{INK}1;{PAPER}6;30,0',
   '60{CIRCLE}{BRIGHT}1;{FLASH}0;{INVERSE}0;128,88,20',
+  '70{PRINT}.5;" ";.25;" ";0.1;" ";3.14159;" ";99.99;" ";.55',
+  '80{PRINT}65535;" ";65536;" ";123456789;" ";4294967296',
+  '90{PRINT}1E38;" ";1e-5;" ";2.5E+2;" ";1E-39;" ";2E-39;" ";1.E3',
+  '100{PRINT}{BIN}0;" ";{BIN}1111111111111111;" ";{BIN}0 1',
+  '110{LET}x=12.345:{LET}y=.001:{PRINT}x;" ";y',
 ];
-// Lines the ROM's syntax check refuses: a space inside a number's whole part
-// or its exponent digits ends the number.
-const REFUSED = ['10{PRINT}1 000', '10{PRINT}1 .5', '10{PRINT}1E3 3'];
+// Lines the ROM refuses: a space inside a number's whole part or its
+// exponent digits ends the number, and a number too big for the calculator
+// (or an exponent above 127) stops DEC-TO-FP with report 6.
+const REFUSED = [
+  '10{PRINT}1 000',
+  '10{PRINT}1 .5',
+  '10{PRINT}1E3 3',
+  '10{PRINT}1E39',
+  '10{PRINT}1E-127',
+  '10{PRINT}1E128',
+];
 
 // K-mode keys, and E (extended) mode, with symbol shift for the colour
 // items and CIRCLE.

@@ -22,6 +22,7 @@ mod listing;
 pub use error::ListingError;
 pub use list::{KEYWORD_NAMES, list, list_line};
 mod parser;
+mod rom_number;
 pub use listing::{LexLine, Piece, PieceKind, lex_line, listed_form, tokenise_listing};
 mod serialize;
 mod tokens;

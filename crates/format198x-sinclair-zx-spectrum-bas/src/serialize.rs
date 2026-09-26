@@ -539,11 +539,20 @@ fn builtin_fn_token(func: BuiltinFn) -> u8 {
 }
 
 /// Serialize a number: ASCII representation + 0x0E + 5-byte float.
+///
+/// The hidden form is what the ROM computes from that spelling (see
+/// `rom_number`). A negative value, which the ROM would read as a minus
+/// sign and a number, keeps the directly converted form.
 fn serialize_number(val: f64, out: &mut Vec<u8>) {
     let s = format_number(val);
     out.extend_from_slice(s.as_bytes());
     out.push(0x0E);
-    out.extend_from_slice(&number_to_float5(val));
+    let hidden = if s.starts_with(|c: char| c.is_ascii_digit()) {
+        crate::rom_number::dec_to_fp(&s).unwrap_or_else(|_| number_to_float5(val))
+    } else {
+        number_to_float5(val)
+    };
+    out.extend_from_slice(&hidden);
 }
 
 fn format_number(val: f64) -> String {
