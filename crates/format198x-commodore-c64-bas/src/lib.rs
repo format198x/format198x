@@ -57,7 +57,8 @@ pub struct LexLine {
 ///
 /// # Errors
 ///
-/// Returns an error if any line number is missing or out of range.
+/// Returns an error if any line number is missing or out of range, or a
+/// line holds a character outside printable ASCII.
 pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
     let mut lines: Vec<(u16, Vec<u8>)> = Vec::new();
 
@@ -67,13 +68,13 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
             continue;
         }
 
-        let (line_num, body_start) =
-            parse_line_number(line).map_err(|message| ListingError::new(line_idx + 1, message))?;
-        let bytes: Vec<u8> = lex_body(&line[body_start..])
+        let lexed = lex_line(raw_line).map_err(|e| ListingError::new(line_idx + 1, e.message))?;
+        let bytes: Vec<u8> = lexed
+            .pieces
             .into_iter()
             .flat_map(|piece| piece.bytes)
             .collect();
-        lines.push((line_num, bytes));
+        lines.push((lexed.number, bytes));
     }
 
     let mut output = vec![BASIC_START as u8, (BASIC_START >> 8) as u8];
@@ -103,12 +104,19 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
 /// space is stored as part of the body, so it lists back out too.
 ///
 /// # Errors
-/// Returns an error for a malformed or missing line number. A single line has
-/// no source context, so the error's `line` is 0; [`tokenise`] and
-/// [`listed_form`] fill it in.
+/// Returns an error for a malformed or missing line number, or a character
+/// outside printable ASCII (the lexer converts ASCII to PETSCII, and has no
+/// mapping for anything else). A single line has no source context, so the
+/// error's `line` is 0; [`tokenise`] and [`listed_form`] fill it in.
 pub fn lex_line(line: &str) -> Result<LexLine, ListingError> {
     let trimmed_end = line.trim_end();
     let text = trimmed_end.trim_start();
+    if !text.bytes().all(|b| (32..=126).contains(&b)) {
+        return Err(ListingError::new(
+            0,
+            "use plain ASCII text; graphics and control codes are not supported here",
+        ));
+    }
     let (number, body_start) =
         parse_line_number(text).map_err(|message| ListingError::new(0, message))?;
     let leading_ws = trimmed_end.len() - text.len();
@@ -389,6 +397,19 @@ mod tests {
         );
         assert_eq!(listed_form("10 END\n\n64000 END").err(), Some(error));
         assert_eq!(lex_line("PRINT").expect_err("error").line, 0);
+    }
+
+    #[test]
+    fn characters_outside_printable_ascii_are_errors() {
+        // `é` is two UTF-8 bytes, which used to be stored raw and list back
+        // as the LEN and STEP tokens.
+        for src in ["10 PRINT \"CAFé\"", "10 PRINT 1\t:END", "10 REM \u{1}"] {
+            let error = tokenise(src).expect_err(src);
+            assert_eq!(error.line, 1, "{src}");
+            assert!(error.message.contains("plain ASCII"), "{src}");
+        }
+        assert!(listed_form("10 PRINT \"é\"").is_err());
+        assert!(lex_line("10 PRINT \"é\"").is_err());
     }
 
     #[test]
