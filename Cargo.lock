@@ -30,8 +30,16 @@ name = "format198x-commodore-c64-art-studio"
 version = "0.1.1"
 
 [[package]]
+name = "format198x-commodore-c64-bas"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-commodore-c64-koala"
 version = "0.1.1"
+
+[[package]]
+name = "format198x-sinclair-zx-spectrum-bas"
+version = "0.1.0"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-scr"

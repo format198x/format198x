@@ -1,0 +1,16 @@
+# The ZX Spectrum BASIC tokeniser: numbered text listings to the bytes the ROM
+# stores. Graduated from emu198x once Build198x needed to write BASIC tapes
+# (umbrella decisions/formats-graduate-to-their-own-projects.md).
+[package]
+name = "format198x-sinclair-zx-spectrum-bas"
+description = "ZX Spectrum BASIC — tokenise numbered text listings into stored program bytes, and list them as the ROM does."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["zx-spectrum", "sinclair", "basic", "tokeniser", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
