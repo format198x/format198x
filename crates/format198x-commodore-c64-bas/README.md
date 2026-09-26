@@ -28,7 +28,8 @@ Blank lines are skipped; any other line must start with a line number.
 
 `tokenise`, `lex_line` and `listed_form` return a `ListingError` with the
 1-based source line kept apart from the message, so a tool can print
-`in.bas:LINE: message` directly:
+`in.bas:LINE: message` directly. `list` returns the same type for a
+truncated PRG, with `line` 0, since it reads bytes rather than source lines:
 
 ```rust
 use format198x_commodore_c64_bas::tokenise;

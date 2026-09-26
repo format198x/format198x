@@ -77,7 +77,8 @@ assert_eq!(line.body_column + line.pieces[1].column, 9);
 
 `tokenise_listing`, `lex_line` and `listed_form` return a `ListingError` with
 the 1-based source line kept apart from the message, so a tool can print
-`in.bas:LINE: message` directly:
+`in.bas:LINE: message` directly. `list` returns the same type for truncated
+program bytes, with `line` 0, since it reads bytes rather than source lines:
 
 ```rust
 use format198x_sinclair_zx_spectrum_bas::tokenise_listing;

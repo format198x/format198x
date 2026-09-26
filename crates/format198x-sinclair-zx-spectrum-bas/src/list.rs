@@ -2,6 +2,8 @@
 //! spacing, PO-CHAR (0B6A) for the leading-space flag, OUT-NUM-2 for the
 //! four-column line number. Screen wrapping is not modelled.
 
+use crate::ListingError;
+
 /// Keyword text in ROM table order, codes 0xA5 (RND) to 0xFF (COPY): the
 /// entry for token `t` is `KEYWORD_NAMES[usize::from(t - 0xA5)]`.
 pub const KEYWORD_NAMES: [&str; 91] = [
@@ -180,19 +182,20 @@ pub fn list_line(number: u16, body: &[u8]) -> String {
 /// `0x80` end marker, as in a memory dump or a tape's program block.
 ///
 /// # Errors
-/// Returns an error if the bytes end partway through a line.
-pub fn list(program: &[u8]) -> Result<Vec<String>, String> {
+/// Returns a [`ListingError`] if the bytes end partway through a line. It
+/// reads bytes, not source text, so the error's `line` is 0.
+pub fn list(program: &[u8]) -> Result<Vec<String>, ListingError> {
     let mut lines = Vec::new();
     let mut at = 0;
     while program.get(at).is_some_and(|&high| high < 0x40) {
         let header = program
             .get(at..at + 4)
-            .ok_or("program ends inside a line header")?;
+            .ok_or_else(|| ListingError::new(0, "program ends inside a line header"))?;
         let number = u16::from_be_bytes([header[0], header[1]]);
         let length = usize::from(u16::from_le_bytes([header[2], header[3]]));
         let body = program
             .get(at + 4..at + 4 + length)
-            .ok_or("program ends inside a line")?;
+            .ok_or_else(|| ListingError::new(0, "program ends inside a line"))?;
         let body = body.strip_suffix(&[0x0D]).unwrap_or(body);
         lines.push(list_line(number, body));
         at += 4 + length;
@@ -263,7 +266,12 @@ mod tests {
     fn truncated_programs_are_errors() {
         let program = tokenise_listing("10 PRINT 1").expect("tokenises");
         let bytes = &program.bytes;
-        assert!(list(&bytes[..3]).is_err());
-        assert!(list(&bytes[..bytes.len() - 1]).is_err());
+        let header = list(&bytes[..3]).expect_err("header");
+        assert_eq!(
+            header,
+            ListingError::new(0, "program ends inside a line header")
+        );
+        let body = list(&bytes[..bytes.len() - 1]).expect_err("body");
+        assert_eq!(body.to_string(), "program ends inside a line");
     }
 }
