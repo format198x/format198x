@@ -236,6 +236,20 @@ mod tests {
     }
 
     #[test]
+    fn lexer_keywords_agree_with_the_listing_names() {
+        // The lexer's table (with its matching spaces) and the ROM-order
+        // listing table are written separately; every token the lexer can
+        // store must list back as the text it was matched from.
+        for &(keyword, token, _) in crate::tokens::KEYWORDS {
+            assert_eq!(
+                KEYWORD_NAMES[usize::from(token - FIRST_TOKEN)],
+                keyword.trim_end(),
+                "token {token:#04X}"
+            );
+        }
+    }
+
+    #[test]
     fn truncated_programs_are_errors() {
         let program = tokenise_listing("10 PRINT 1").expect("tokenises");
         let bytes = &program.bytes;
