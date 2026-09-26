@@ -18,7 +18,7 @@
 pub mod ast;
 mod listing;
 mod parser;
-pub use listing::tokenise_listing;
+pub use listing::{LexLine, Piece, PieceKind, lex_line, tokenise_listing};
 mod serialize;
 mod tokens;
 
