@@ -30,9 +30,17 @@ sets the edit line to `n`, and the ROM then prints the `>` cursor in place of
 the space after the number. Listing from a number with no line still starts at
 line `n` but marks nothing.
 
-`runBasic` uses the emulator's own tokeniser. On the capture date the program
-it installed (PROG to VARS) was byte-identical to `tokenise_listing(cases.bas)`,
-so the ROM listed the same bytes the test lists.
+`runBasic` uses the emulator's own tokeniser, a separate implementation from
+this crate's `tokenise_listing`. The two no longer store identical bytes for
+every case: `tokenise_listing` now drops a single source space before a
+keyword such as `THEN` or `OR` (the ROM reprints it on LIST — see
+`fn rom_leading_space`), while `runBasic` still stores that space. The
+captured listings agree regardless, because a *stored* space suppresses the
+ROM's own leading-space insertion exactly as a dropped one does: either way,
+LIST prints the same text. That equivalence is what makes this fixture a
+valid oracle for `list()` despite the two tokenisers disagreeing — but it does
+not hold universally: see the RND/INKEY$/PI note below for a divergence where
+it fails.
 
 ## Cases
 
