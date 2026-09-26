@@ -57,6 +57,7 @@ pub struct LexLine {
 
 /// Tokenises text BASIC source into C64 PRG format.
 ///
+/// Blank lines are skipped; every other line must start with a line number.
 /// Lines are stored in line-number order whatever order the source gives
 /// them in, as the C64 inserts each typed line into place.
 ///
@@ -69,8 +70,7 @@ pub fn tokenise(source: &str) -> Result<BasicProgram, ListingError> {
     let mut lines: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
 
     for (line_idx, raw_line) in source.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if raw_line.trim().is_empty() {
             continue;
         }
 
@@ -397,10 +397,12 @@ mod tests {
     }
 
     #[test]
-    fn skip_blank_and_comment_lines() {
-        let prog = tokenise("# comment\n\n10 END\n").expect("should tokenise");
+    fn blank_lines_are_skipped_and_comment_lines_are_errors() {
+        let prog = tokenise("\n  \n10 END\n").expect("should tokenise");
         assert_eq!(prog.bytes[4], 10);
         assert_eq!(prog.bytes[5], 0);
+        let error = tokenise("# comment\n10 END").expect_err("comment line");
+        assert_eq!(error.line, 1);
     }
 
     #[test]
