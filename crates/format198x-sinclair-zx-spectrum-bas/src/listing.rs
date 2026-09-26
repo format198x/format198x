@@ -217,11 +217,14 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             let start = pos;
             let word_len = keyword.trim_end().len();
             // The ROM prints a leading space before this keyword itself when
-            // listing (PO-SEARCH); a source space serving that purpose is
-            // redundant, so drop it rather than store it twice over.
-            if rom_leading_space(token)
-                && matches!(out.last(), Some(p) if p.kind == PieceKind::Space && p.bytes == *b" ")
-            {
+            // listing (PO-SEARCH); a single source space serving that purpose
+            // is redundant, so drop it rather than store it twice over. Two
+            // or more source spaces are real content (the ROM only ever adds
+            // one), so only pop when the run immediately before the keyword
+            // is exactly one space long.
+            let last_is_space = matches!(out.last(), Some(p) if p.kind == PieceKind::Space);
+            let run_is_one = out.len() < 2 || out[out.len() - 2].kind != PieceKind::Space;
+            if rom_leading_space(token) && last_is_space && run_is_one {
                 out.pop();
             }
             out.push(Piece {
@@ -236,20 +239,17 @@ fn lex_body(source: &str) -> Result<Vec<Piece>, String> {
             statement_start = token == 0xCB;
             variable = matches!(token, 0xF1 | 0xEB | 0xF3 | 0xE9 | 0xE3);
             pos += word_len;
-            // A source space right after a keyword is dropped, matching the
-            // `@emu198x/zx-spectrum` tokeniser's own installer (see
-            // `tests/fixtures/rom-list/README.md`): every keyword absorbs one
-            // trailing space except RND, INKEY$ and PI, which take no
-            // arguments and get no ROM-side spacing in either direction, so a
-            // source space after them is real content that must be kept.
-            // (`list::rom_trailing_space` looks like the natural predicate
-            // here, since it names the same three tokens as exceptions, but
-            // it answers a different question — whether LIST prints a space
-            // after the token — and disagrees for OPEN # / CLOSE #: LIST adds
-            // no space there, yet the installer still absorbs one on entry,
-            // confirmed against the genuine ROM by the unchanged `OPEN #4`
-            // fixture case. Reusing it here would silently add a stored byte
-            // that the existing rom-list fixture proves is wrong.)
+            // A source space right after a keyword is dropped, except after
+            // RND, INKEY$ and PI: those three take no arguments and get no
+            // ROM trailing space on LIST either (`list::rom_trailing_space`
+            // excludes them for the same reason), so a source space after
+            // one is real content, not display padding the ROM will restore.
+            // OPEN # and CLOSE # still absorb their trailing space here too —
+            // a scoped choice, not ROM-verified behaviour: see
+            // `tests/fixtures/rom-list/README.md` for why the ROM-capture
+            // fixture can't settle this (its installer isn't a
+            // keystroke-accurate ROM simulation), so `OPEN # 4` does not
+            // round-trip; that is a known gap, not guessed at here.
             if !matches!(token, 0xA5..=0xA7) && bytes.get(pos) == Some(&b' ') {
                 pos += 1;
             }
@@ -471,6 +471,7 @@ mod tests {
         let src =
             "  10 PRINT CHR$ (147)\n  20 IF a=1 THEN GO TO 20\n  30 PRINT \"a = b\";INKEY$;RND";
         let listed = listed_form(src).expect("listed");
+        assert_eq!(listed.len(), src.lines().count());
         for ((_, got), want) in listed.iter().zip(src.lines()) {
             assert_eq!(got.trim_end(), want);
         }
@@ -493,5 +494,16 @@ mod tests {
         );
         let listed = listed_form("10 PRINT RND * 4").expect("listed");
         assert_eq!(listed[0].1.trim_end(), "  10 PRINT RND * 4");
+    }
+
+    #[test]
+    fn two_spaces_before_a_keyword_round_trip_unchanged() {
+        // The ROM only ever adds ONE leading space, so a genuine two-space
+        // gap before a keyword must survive as two stored spaces, not one.
+        let src = "  10 IF a  THEN STOP\n  20 PRINT 1:  REM x";
+        let listed = listed_form(src).expect("listed");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].1.trim_end(), "  10 IF a  THEN STOP");
+        assert_eq!(listed[1].1.trim_end(), "  20 PRINT 1:  REM x");
     }
 }
