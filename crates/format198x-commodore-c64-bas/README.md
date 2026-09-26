@@ -25,9 +25,10 @@ stores the `OR` token in the middle. `?` is stored as the PRINT token, as
 the C64 stores it, so `?A` lists as `PRINTA`; petcat differs here and
 stores `?` as the character.
 Lines are stored in line-number order. Blank lines are skipped; any other
-line must start with a line number. A program must fit in BASIC's memory on
-a stock C64, `$0801` to `$9FFF` (38,911 bytes, end marker included); a larger
-one is an error, since the BASIC ROM sits at `$A000`.
+line must start with a line number from 0 to 63999, the range the C64 takes.
+A program must fit in BASIC's memory on a stock C64, `$0801` to `$9FFF`
+(38,911 bytes, end marker included); a larger one is an error, since the
+BASIC ROM sits at `$A000`.
 
 ## Errors
 

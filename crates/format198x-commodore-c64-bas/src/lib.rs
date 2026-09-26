@@ -20,6 +20,9 @@ use tokens::KEYWORDS;
 
 const BASIC_START: u16 = 0x0801;
 
+/// The highest line number BASIC V2 accepts.
+const LAST_LINE: u16 = 63_999;
+
 /// The first address past BASIC program memory. With the BASIC ROM banked in
 /// at `$A000`, a stock C64 keeps BASIC programs in `$0801`–`$9FFF`: the
 /// Programmer's Reference Guide's memory map lists `0800-9FFF` as "Normal
@@ -83,7 +86,7 @@ pub enum PieceKind {
 /// A listing line split into number and pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexLine {
-    /// The line number, 1 to 63999.
+    /// The line number, 0 to 63999.
     pub number: u16,
     /// 0-based byte offset of the body within the source line.
     pub body_column: usize,
@@ -205,12 +208,18 @@ fn parse_line_number(text: &str) -> Result<(u16, usize), String> {
         return Err(format!("expected a line number, got: {text}"));
     }
 
-    let num: u32 = text[..digit_end]
-        .parse()
-        .map_err(|err| format!("invalid line number: {err}"))?;
-    if num == 0 || num > 63_999 {
-        return Err(format!("line number {num} out of range (1-63999)"));
-    }
+    // BASIC V2 takes line numbers 0 to 63999: LINGET ($A96B) checks that
+    // range (Leemon, *Mapping the Commodore 64 & 64C*, 1987), and typed into
+    // the C64 in VICE x64sc, `0 PRINT "HI"` and `63999` are stored, LIST
+    // and RUN, while 64000, 65535, 70000 and 99999999999 each give
+    // ?SYNTAX ERROR. Any numeral outside the range gets one message, even
+    // one too long to parse.
+    let numeral = &text[..digit_end];
+    let num = numeral
+        .parse::<u16>()
+        .ok()
+        .filter(|n| *n <= LAST_LINE)
+        .ok_or_else(|| format!("line number {numeral} out of range (0-63999)"))?;
 
     let body_start = if text[digit_end..].starts_with(' ') {
         digit_end + 1
@@ -218,7 +227,7 @@ fn parse_line_number(text: &str) -> Result<(u16, usize), String> {
         digit_end
     };
 
-    Ok((num as u16, body_start))
+    Ok((num, body_start))
 }
 
 /// Lex a line body into positioned pieces. Concatenating the pieces' bytes
@@ -487,10 +496,10 @@ mod tests {
     fn errors_carry_the_source_line_separately_from_the_message() {
         let error = tokenise("10 END\n\n64000 END").expect_err("error");
         assert_eq!(error.line, 3);
-        assert_eq!(error.message, "line number 64000 out of range (1-63999)");
+        assert_eq!(error.message, "line number 64000 out of range (0-63999)");
         assert_eq!(
             error.to_string(),
-            "line 3: line number 64000 out of range (1-63999)"
+            "line 3: line number 64000 out of range (0-63999)"
         );
         assert_eq!(listed_form("10 END\n\n64000 END").err(), Some(error));
         assert_eq!(lex_line("PRINT").expect_err("error").line, 0);
@@ -577,8 +586,21 @@ mod tests {
 
     #[test]
     fn line_number_validation() {
-        assert!(tokenise("0 PRINT \"BAD\"").is_err());
-        assert!(tokenise("64000 PRINT \"BAD\"").is_err());
+        // The C64 stores, lists and runs lines 0 and 63999 (VICE x64sc).
+        let prog = tokenise("0 PRINT \"HI\"\n63999 END").expect("0 and 63999 are lines");
+        assert_eq!(&prog.bytes[4..6], [0, 0]);
+        assert_eq!(
+            list(&prog.bytes).expect("lists"),
+            ["0 PRINT \"HI\"", "63999 END"]
+        );
+        // And gives ?SYNTAX ERROR for these; each gets the same message.
+        for numeral in ["64000", "65535", "70000", "99999999999"] {
+            let error = tokenise(&format!("{numeral} PRINT \"BAD\"")).expect_err(numeral);
+            assert_eq!(
+                error.message,
+                format!("line number {numeral} out of range (0-63999)")
+            );
+        }
         assert!(tokenise("PRINT \"BAD\"").is_err());
     }
 
