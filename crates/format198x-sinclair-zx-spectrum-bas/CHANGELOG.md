@@ -11,7 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- read spaces in Spectrum numbers and names as the ROM does
+- **Spaces inside numbers and names now read as the 48K ROM reads them**
+  ([#49](https://github.com/format198x/format198x/pull/49)). The ROM skips a
+  space after a decimal point and around an exponent's `E`, so `1. 5` and
+  `1.5 E3` are single numbers, but it refuses a space among a number's
+  whole-part digits: `1 000`, `1 .5` and `1E3 3` are now errors rather than
+  two numbers. A numeric variable name continues across spaces, so `a 1` is
+  the variable `a1`, stored with its space. Spaces after a number are stored
+  before its hidden five-byte value, where the ROM puts them. Each case is
+  checked against what the genuine ROM's editor stores, and against the
+  output of a tape built from this crate's bytes and run on it.
 
 ## [0.1.0](https://github.com/format198x/format198x/releases/tag/format198x-sinclair-zx-spectrum-bas-v0.1.0) - 2026-09-26
 
