@@ -14,10 +14,79 @@
 //! at runtime, not by position — the +3 ROM and most disk software trust
 //! the address marks rather than the physical layout.
 //!
-//! Output is a [`DiskImage`] that the [`nec_upd765a`] FDC consumes
-//! directly.
+//! Format data is independent of FDC state. Runtime adapters convert the
+//! decoded image into their controller-owned model. See [`plus3`] for the
+//! bounded, standard 180 KiB +3DOS filesystem writer.
 
-use nec_upd765a::{DiskImage, DiskSector, DiskTrack};
+pub mod plus3;
+
+/// A floppy sector parsed from a disk image.
+#[derive(Clone, Debug)]
+pub struct DiskSector {
+    /// Cylinder (C) as recorded in the sector's address mark. May
+    /// differ from the sector's physical track on copy-protected
+    /// disks — Speedlock and similar schemes deliberately record
+    /// non-matching values to defeat naïve copiers.
+    pub c: u8,
+    /// Head (H) as recorded in the address mark.
+    pub h: u8,
+    /// Sector ID (R) as it appears in the address mark — this is what
+    /// the FDC matches against the sector ID in the read command, and
+    /// it is *not* always equal to the physical position on the track.
+    pub id: u8,
+    /// Sector size code (N): 0 = 128 bytes, 1 = 256, 2 = 512, 3 = 1024.
+    /// Copy-protected disks sometimes record N that doesn't match the
+    /// actual data length — the FDC reports it via ReadID and the
+    /// loader's CRC checks rely on the recorded value.
+    pub n: u8,
+    /// Recorded ST1 status the FDC would have returned reading this
+    /// sector at dump time. Bit 5 (`DE` data error / CRC mismatch in
+    /// the data field) is the load-bearing one for protection —
+    /// Alkatraz and similar schemes write CRC-broken sectors that
+    /// only succeed when the loader explicitly tolerates the error.
+    pub st1: u8,
+    /// Recorded ST2 status. Bit 6 (`CM` = Control Mark) is the
+    /// DAM/DDAM flag: 0 = standard data address mark, 1 = deleted.
+    /// Speedlock writes key sectors with DDAM and reads them back via
+    /// the `ReadDeletedData` command (`0x0C`); a `ReadData` (`0x06`)
+    /// must either skip these (SK=1 in the command byte) or set
+    /// ST2.CM in its own result (SK=0). Bit 5 (`DD` data error in
+    /// data field) parallels ST1.DE.
+    pub st2: u8,
+    pub data: Vec<u8>,
+}
+
+/// ST2 bit mask for the Control Mark / DAM-vs-DDAM flag. Set when
+/// the sector was written with a *deleted* data address mark.
+pub const ST2_CM: u8 = 0x40;
+
+/// One physical track on one side of a floppy.
+#[derive(Clone, Debug, Default)]
+pub struct DiskTrack {
+    pub sectors: Vec<DiskSector>,
+}
+
+/// A structured floppy image: tracks × sides × sectors.
+///
+/// Stored in [side][track] order (matching how heads physically address
+/// the medium). Sectors within a track are kept in physical order but
+/// looked up by their ID.
+#[derive(Clone, Debug, Default)]
+pub struct DiskImage {
+    pub sides: u8,
+    pub tracks_per_side: u8,
+    /// Indexed as `tracks[side][track]`.
+    pub tracks: Vec<Vec<DiskTrack>>,
+}
+
+impl DiskImage {
+    /// Look up a sector by physical (track, side) and logical sector ID.
+    pub fn sector(&self, track: u8, side: u8, sector_id: u8) -> Option<&DiskSector> {
+        let side_tracks = self.tracks.get(side as usize)?;
+        let trk = side_tracks.get(track as usize)?;
+        trk.sectors.iter().find(|s| s.id == sector_id)
+    }
+}
 
 const HEADER_LEN: usize = 256;
 const TRACK_HEADER_LEN: usize = 256;

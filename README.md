@@ -12,6 +12,7 @@ not just the 198x projects.
 
 | Crate | Format | crates.io |
 |-------|--------|-----------|
+| [`format198x-amstrad-cpc-dsk`](crates/format198x-amstrad-cpc-dsk) | CPCEMU DSK/EDSK reading and standard Spectrum +3DOS disk writing | Initial release |
 | [`format198x-atari-8bit-xex`](crates/format198x-atari-8bit-xex) | Atari 8-bit XEX segmented executables — ordered, zero-copy parsing | [![crates.io](https://img.shields.io/crates/v/format198x-atari-8bit-xex.svg)](https://crates.io/crates/format198x-atari-8bit-xex) |
 | [`format198x-commodore-amiga-adf`](crates/format198x-commodore-amiga-adf) | Amiga ADF floppy images (OFS/FFS) — read, write, verify | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-adf.svg)](https://crates.io/crates/format198x-commodore-amiga-adf) |
 | [`format198x-commodore-amiga-ilbm`](crates/format198x-commodore-amiga-ilbm) | Amiga IFF/ILBM images — interleaved bitplanes, ByteRun1, CAMG flags | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-ilbm.svg)](https://crates.io/crates/format198x-commodore-amiga-ilbm) |
@@ -27,7 +28,7 @@ not just the 198x projects.
 | [`format198x-tangerine-oric-tap`](crates/format198x-tangerine-oric-tap) | Oric TAP tape images — headers, names, addresses, and concatenated files | [![crates.io](https://img.shields.io/crates/v/format198x-tangerine-oric-tap.svg)](https://crates.io/crates/format198x-tangerine-oric-tap) |
 | [`format198x-tzx`](crates/format198x-tzx) | Shared TZX/CDT block stream — lossless decode and encode | [![crates.io](https://img.shields.io/crates/v/format198x-tzx.svg)](https://crates.io/crates/format198x-tzx) |
 
-More formats (C64 D64, Amstrad DSK, and others) graduate here from their
+More formats (C64 D64 and others) graduate here from their
 originating projects as they earn a standalone consumer.
 
 ## Conventions

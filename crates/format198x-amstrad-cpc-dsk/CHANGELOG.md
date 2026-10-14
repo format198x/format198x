@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-14
+
+### Added
+
+- Dependency-free DSK/EDSK reader graduated from Emu198x with its history.
+- Standard 180 KiB +3DOS mastering, BASIC/CODE headers and multi-extent files.
+
+Independent versions start at 0.1.0; older entries below record Emu198x releases.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/format-amstrad-dsk-v0.2.0) - 2026-06-04
 
 ### Other
