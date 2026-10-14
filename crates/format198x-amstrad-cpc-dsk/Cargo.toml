@@ -1,14 +1,13 @@
 [package]
-name = "format-amstrad-dsk"
-description = "DSK and EDSK floppy image parser — used by the Amstrad CPC and ZX Spectrum +3"
+name = "format198x-amstrad-cpc-dsk"
+description = "CPCEMU DSK/EDSK reading and standard Spectrum +3DOS disk mastering"
+version = "0.1.0"
 edition.workspace = true
-version.workspace = true
-publish = false
 license.workspace = true
 repository.workspace = true
-
-[dependencies]
-nec-upd765a = { path = "../nec-upd765a", version = "0.32.0" }
+readme = "README.md"
+keywords = ["dsk", "edsk", "amstrad", "spectrum", "disk"]
+categories = ["encoding", "parser-implementations"]
 
 [lints]
 workspace = true
