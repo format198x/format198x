@@ -1,7 +1,7 @@
 [package]
 name = "format198x-amstrad-cpc-dsk"
 description = "CPCEMU DSK/EDSK reading, Extended DSK encoding and Spectrum +3DOS disk mastering"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
