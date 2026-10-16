@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/format198x/format198x/compare/format198x-amstrad-cpc-dsk-v0.1.0...format198x-amstrad-cpc-dsk-v0.1.1) - 2026-10-16
+
+### Added
+
+- encode represented disk sectors as Extended DSK
+
 ## [0.1.0] - 2026-10-14
 
 ### Added
