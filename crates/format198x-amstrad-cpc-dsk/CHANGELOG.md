@@ -11,7 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- encode represented disk sectors as Extended DSK
+- Encode a sector image as Extended DSK while preserving physical order,
+  CHRN, status flags and exact stored data lengths, including zero-length sectors.
+- Reject inconsistent geometry and overflowing tables or tracks instead of
+  truncating data. A conversion example creates a new output file only.
+
+The sector model is unchanged. Original gap/filler, recording mode/rate and
+container padding are not preserved; output uses documented defaults. Runtime
+export and fresh-machine reopening require separate consumer verification.
 
 ## [0.1.0] - 2026-10-14
 
