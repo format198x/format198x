@@ -1,7 +1,7 @@
 # format198x-amstrad-cpc-dsk
 
 Dependency-free CPCEMU standard and extended DSK reading, with a bounded
-standard 180 KiB Spectrum +3DOS disk writer. The container is shared by Amstrad
+standard 180 KiB Spectrum +3DOS disk writer and a sector-model EDSK encoder. The container is shared by Amstrad
 CPC and Spectrum +3 tools; the `plus3` module names the filesystem profile.
 
 `parse` returns sectors and their CHRN, ST1/ST2 and payload bytes. It does not
@@ -21,12 +21,31 @@ assert_eq!(image.len(), 194816); // 180 KiB sectors plus DSK headers
 The writer uses 40 tracks, one side, nine 512-byte sectors per track, one
 reserved track and 1024-byte allocation blocks. Its first sector deliberately
 does not have an executable bootstrap checksum. To use the +3 menu Loader,
-include an autorunning BASIC file named `DISK`. EDSK writing, other geometries,
-protection, writeback and general CP/M filesystem editing are outside this API.
+include an autorunning BASIC file named `DISK`. Other filesystem geometries,
+writeback and general CP/M filesystem editing are outside the `plus3` API.
+
+`encode_extended(&DiskImage)` writes the represented sectors as EDSK. It
+preserves physical placement/order, duplicate IDs, CHRN, ST1/ST2 and exact
+stored lengths/data, including zero-length sectors. Empty tracks become
+unformatted entries. Invalid dimensions and layouts exceeding the fixed disk
+table, sector table or track-length fields return errors instead of truncating.
+
+This is not a byte-preserving dump rewrite. The model does not retain creator,
+gap/filler, recording mode/rate or padding. The encoder supplies deterministic
+defaults; stored weak-sector copies remain uninterpreted bytes. Runtime export,
+controller accuracy and protection behaviour need separate verification.
+
+Convert an existing image without overwriting any existing output path:
+
+```sh
+cargo run -p format198x-amstrad-cpc-dsk --example encode_extended -- input.dsk new.edsk
+```
 
 Sources: CPCEMU documentation [§7.7.1](https://cpc-emu.org/docu_e.html), and
 Amstrad's *ZX Spectrum +3 User Manual*, printed pp153, 203, 213–217. The former
 defines the container; the latter defines the disk geometry and +3DOS framing.
+Extended output follows the format authors' [Extended DSK Rev.5 definition](https://cpctech.cpcwiki.de/docs/extdsk.html),
+summarised in the umbrella reference `by-system/amstrad-cpc/cpcemu-dsk-container.md`.
 
 The reader graduated from Emu198x's `format-amstrad-dsk` at
 `1464b89faf354bfe098fda88ee6f9df05be3495c`. Its subtree history is retained in

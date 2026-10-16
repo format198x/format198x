@@ -1,4 +1,4 @@
-//! DSK and EDSK floppy image parser.
+//! DSK/EDSK parsing, sector-model EDSK encoding and +3DOS disk mastering.
 //!
 //! Two flavours share one container layout:
 //!
@@ -17,8 +17,12 @@
 //! Format data is independent of FDC state. Runtime adapters convert the
 //! decoded image into their controller-owned model. See [`plus3`] for the
 //! bounded, standard 180 KiB +3DOS filesystem writer.
+//! [`encode_extended`] encodes the represented sector model without changing it.
 
+mod encode;
 pub mod plus3;
+
+pub use encode::encode_extended;
 
 /// A floppy sector parsed from a disk image.
 #[derive(Clone, Debug)]
