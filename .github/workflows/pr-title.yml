@@ -22,6 +22,7 @@ jobs:
   pr-title:
     name: PR title
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # A squash takes its commit subject from the pull request title once a
       # branch has more than one commit, so the title is the only

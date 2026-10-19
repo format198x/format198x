@@ -25,6 +25,7 @@ jobs:
     name: Publish merged releases
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -125,6 +126,7 @@ jobs:
     needs: release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: release-plz-pr-${{ github.ref }}
       cancel-in-progress: false
@@ -146,6 +148,7 @@ jobs:
     name: Publish an already-tagged package
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
