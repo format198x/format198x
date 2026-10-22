@@ -1,0 +1,80 @@
+{
+  "consumer_source_sha256": "050db7da7b1b92155b3eadbe91af3ec4763c6c0def45f18481f87935af0d900b",
+  "consumer_binary_sha256": "7e73f20c6abb3c4bbd8a79e226f4486cb50325d058c7d311df057dc1a258560d",
+  "linked_library": "local format198x-commodore-amiga-adf 0.3.3 with issue #69 fix",
+  "manifest_label_limit": "Unmodified Build198x CLI hardcodes library label 0.3.2; actual local 0.3.3 linkage was checked using cargo tree. The label is not dependency-version evidence.",
+  "retained_images": [
+    {
+      "image_sha256": "b940e6432f94bddf0ecaf3d271e2b237a3bda0e33d136bf61ba0be4138a5b925",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "7fbad01bba443f45b8d8cec3c7e8d3e193b5e3b2a126ef3a553991178477b8d4",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "83287e6936f9891b0822e71cdd7b2c7e928015d8e71952a98f04c0124b1ea4ac",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "5a5d9621abc1b3e71d06628136194cd240766a5bddc76a7f460b24bb4f82bcd8",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "75180c1a34cc5e2577780da52f22856ce11d6238818e3ec41063444c7d0e8363",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "b7ee962523d2ce2036c09b3b6283bd097b54bbe0e921f36702fe92fdc6b6bed0",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "9cb287f3376ec6b3d681ff794dcd3536c5f0ec21f562ec117e2c13060805558f",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "5a5d9621abc1b3e71d06628136194cd240766a5bddc76a7f460b24bb4f82bcd8",
+      "verify_exit": 0,
+      "sound": true
+    },
+    {
+      "image_sha256": "5ae75d75b4c96b2eff321e6ae5f2a962ace382b5e8ae088e98329773e74040e6",
+      "verify_exit": 0,
+      "sound": true
+    }
+  ],
+  "controls": [
+    {
+      "control": "live-header-free",
+      "verify_exit": 1,
+      "problem": "block 882: in use, but the bitmap offers it as free"
+    },
+    {
+      "control": "last-real-block-held",
+      "verify_exit": 1,
+      "problem": "block 1759: held by the bitmap, but nothing reaches it"
+    },
+    {
+      "control": "padding-bit-0",
+      "verify_exit": 1,
+      "problem": "bitmap block 884: non-existent block 1760 is marked free"
+    },
+    {
+      "control": "padding-bit-1",
+      "verify_exit": 1,
+      "problem": "bitmap block 884: non-existent block 1761 is marked free"
+    },
+    {
+      "control": "slack-checksum",
+      "verify_exit": 1,
+      "problem": "block 884 (bitmap, \"/\"): checksum does not match"
+    }
+  ]
+}

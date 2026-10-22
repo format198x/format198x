@@ -49,6 +49,22 @@ because an insert can set a header's `hash_chain`.
 read-back is a useful secondary check. A byte-compare against `xdftool` is
 meaningless because it stamps dates.
 
+## Native bitmap slack
+
+Accepted 2026-10-22 for issue #69. Read-side verification accepts nonzero whole
+words after the allocation map. The final allocation word's padding bits must
+remain clear; real-block ownership and the checksum over the entire bitmap
+block remain checked. The deterministic writer continues to zero unused words.
+
+This refines issue #7's requirement to validate unused tail bits: the check
+covers padding in the last allocation word, not subsequent whole-word slack.
+The reason is [independent native Easy AMOS Save evidence](https://github.com/lang198x/amos/blob/52909f1/corpus/editions/save-load/easy/reference-save.md):
+FS-UAE and Emu198x produce the same complete bitmap, with correct real allocation
+and checksum but nonzero whole words beyond the map. The filename difference
+and scope limits are explicit in that report. Native media remain private;
+regressions use synthetic bytes. Do not normalise original media to satisfy our
+writer's canonical padding.
+
 ## The OFS structures a writer must emit
 
 An 880K DD image is 1760 × 512 = 901,120 bytes.

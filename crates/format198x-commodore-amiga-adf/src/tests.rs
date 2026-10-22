@@ -4,6 +4,8 @@ use crate::layout::*;
 use crate::read::*;
 use crate::write::*;
 
+mod bitmap_slack;
+
 /// Follow the on-disk structure to read a top-level file's bytes back —
 /// validating the root hash table, file header, data-pointer table, and
 /// OFS data-block chain the way a real filesystem would.

@@ -94,7 +94,7 @@ pub enum Problem {
         /// Stored bitmap-valid flag.
         found: u32,
     },
-    /// A bitmap offers a bit beyond the end of the media as free.
+    /// The final allocation word offers a bit beyond the media as free.
     BitmapTailFree {
         /// Bitmap block containing the invalid tail.
         bitmap: u32,
@@ -623,8 +623,11 @@ impl Walk<'_, '_> {
         }
 
         let represented = (geometry.blocks() - RESERVED) as usize;
-        let capacity = (BSIZE - 4) * 8;
-        for index in represented..capacity {
+        // Native AmigaDOS can leave nonzero whole words after the map. Only
+        // padding within the final allocation word is part of this check;
+        // the bitmap checksum still covers the entire block.
+        let padded_end = represented.div_ceil(32) * 32;
+        for index in represented..padded_end {
             let free = read_u32(bitmap, 4 + 4 * (index / 32)) & (1 << (index % 32)) != 0;
             if free {
                 self.problems.push(Problem::BitmapTailFree {
