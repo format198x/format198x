@@ -12,7 +12,7 @@ version = "0.1.0"
 
 [[package]]
 name = "format198x-commodore-amiga-adf"
-version = "0.3.3"
+version = "0.3.4"
 
 [[package]]
 name = "format198x-commodore-amiga-ilbm"

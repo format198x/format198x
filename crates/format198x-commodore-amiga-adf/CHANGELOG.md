@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.3...format198x-commodore-amiga-adf-v0.3.4) - 2026-10-22
+
+### Fixed
+
+- *(adf)* accept unused bitmap words written by native AmigaDOS
+
 ### Fixed
 
 - Accept native AmigaDOS bitmaps with nonzero unused whole words after the
