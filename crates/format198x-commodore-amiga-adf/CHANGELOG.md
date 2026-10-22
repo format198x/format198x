@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Accept native AmigaDOS bitmaps with nonzero unused whole words after the
+  allocation map. Final-word padding, full-block checksums and real block
+  allocation remain verified; deterministic writer output is unchanged (#69).
+
 ## [0.3.3](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.2...format198x-commodore-amiga-adf-v0.3.3) - 2026-08-28
 
 ### Fixed
