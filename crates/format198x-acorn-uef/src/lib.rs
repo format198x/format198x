@@ -9,22 +9,26 @@
 //! whether or not this crate understands it. [`Chunk::tape`] reads the
 //! common tape chunks, and the [`Chunk`] constructors write them.
 //!
+//! # Compression
+//!
+//! UEF files are usually gzip-compressed as a whole. [`Uef::parse`] reads
+//! both kinds, inflating with the family's own [`format198x_deflate`]
+//! crate, re-exported as [`deflate`]. [`Uef::encode`] writes an
+//! uncompressed image and [`Uef::encode_gzipped`] a compressed one.
+//!
 //! # Not here
 //!
-//! - **The gzip layer.** UEF files are often gzip-compressed as a whole.
-//!   That wrapper is gzip, not UEF, and this crate has no dependencies, so
-//!   [`Uef::parse`] reports [`UefError::Gzipped`] and leaves inflating to
-//!   the caller.
 //! - **The waveform.** Turning chunks into Kansas City cycles at a machine's
 //!   clock is the emulator's business.
 //!
 //! Chunk semantics follow the UEF specification and MAME's
 //! `src/lib/formats/uef_cas.cpp`.
 
+pub use format198x_deflate as deflate;
+use format198x_deflate::{Level, Options, gzip};
+
 /// The 10-byte signature.
 pub const MAGIC: [u8; 10] = *b"UEF File!\0";
-/// The gzip signature, which a compressed UEF starts with.
-const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 /// Offset of the first chunk: the magic and two version bytes.
 const FIRST_CHUNK: usize = MAGIC.len() + 2;
 /// Chunk header: id and length.
@@ -99,8 +103,8 @@ pub enum TapeChunk<'a> {
 pub enum UefError {
     /// Shorter than the magic and version bytes.
     TooSmall(usize),
-    /// The image is gzip-compressed; inflate it first.
-    Gzipped,
+    /// The image is gzip-compressed and the gzip layer is damaged.
+    Gzip(deflate::Error),
     /// The `UEF File!\0` magic is missing.
     BadMagic,
     /// A chunk claims more bytes than remain.
@@ -132,7 +136,7 @@ impl core::fmt::Display for UefError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::TooSmall(v0) => write!(f, "file is too small to be a UEF image ({v0} bytes)"),
-            Self::Gzipped => write!(f, "UEF image is gzip-compressed; inflate it first"),
+            Self::Gzip(e) => write!(f, "gzipped UEF image: {e}"),
             Self::BadMagic => write!(f, "missing UEF magic header"),
             Self::TruncatedChunk {
                 id,
@@ -153,12 +157,19 @@ impl core::fmt::Display for UefError {
     }
 }
 
-impl std::error::Error for UefError {}
+impl std::error::Error for UefError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Gzip(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// Whether `data` starts with the gzip signature, as a compressed UEF does.
 #[must_use]
 pub fn is_gzipped(data: &[u8]) -> bool {
-    data.starts_with(&GZIP_MAGIC)
+    gzip::is_gzip(data)
 }
 
 fn u16_at(data: &[u8], id: u16, at: usize) -> Result<u16, UefError> {
@@ -285,16 +296,39 @@ impl Uef {
         }
     }
 
-    /// Parse an uncompressed UEF image.
+    /// Parse a UEF image, gzipped or not.
     ///
     /// # Errors
     ///
-    /// Returns [`UefError::Gzipped`] for a compressed image, and an error
-    /// when the magic is missing or a chunk runs past the end.
+    /// Returns [`UefError::Gzip`] when a compressed image's gzip layer is
+    /// damaged, and an error when the magic is missing or a chunk runs past
+    /// the end.
     pub fn parse(data: &[u8]) -> Result<Self, UefError> {
+        Self::parse_with(data, &Options::DEFAULT)
+    }
+
+    /// Parse a UEF image, inflating a gzipped one under `options`, for
+    /// example to cap how large it may grow.
+    ///
+    /// # Errors
+    ///
+    /// As [`Uef::parse`]; going past `options.max_output` is
+    /// [`UefError::Gzip`].
+    pub fn parse_with(data: &[u8], options: &Options) -> Result<Self, UefError> {
         if is_gzipped(data) {
-            return Err(UefError::Gzipped);
+            let member = gzip::decode_with(data, options).map_err(UefError::Gzip)?;
+            return Self::parse_uncompressed(&member.data);
         }
+        Self::parse_uncompressed(data)
+    }
+
+    /// Parse an image that is already uncompressed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the magic is missing, which it is for a gzipped
+    /// image, or a chunk runs past the end.
+    pub fn parse_uncompressed(data: &[u8]) -> Result<Self, UefError> {
         if data.len() < FIRST_CHUNK {
             return Err(UefError::TooSmall(data.len()));
         }
@@ -344,6 +378,17 @@ impl Uef {
         }
         out.extend_from_slice(&self.trailing);
         Ok(out)
+    }
+
+    /// Encode the image gzip-compressed at `level`, as UEF files are usually
+    /// distributed. The gzip header is empty: no name, time 0.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UefError::ChunkTooLong`] for a chunk over 4 GiB.
+    pub fn encode_gzipped(&self, level: Level) -> Result<Vec<u8>, UefError> {
+        let raw = self.encode()?;
+        gzip::encode(&gzip::Header::default(), &raw, level).map_err(UefError::Gzip)
     }
 }
 
@@ -442,8 +487,41 @@ mod tests {
     }
 
     #[test]
+    fn gzipped_images_read_and_write() {
+        let uef = sample();
+        let gz = uef.encode_gzipped(Level::BEST).expect("encodes");
+        assert!(is_gzipped(&gz));
+        assert_eq!(Uef::parse(&gz), Ok(uef.clone()));
+        assert_eq!(Uef::parse_uncompressed(&gz), Err(UefError::BadMagic));
+        let tight = Options::default().max_output(16);
+        assert_eq!(
+            Uef::parse_with(&gz, &tight),
+            Err(UefError::Gzip(deflate::Error::OutputLimit { limit: 16 }))
+        );
+    }
+
+    /// A gzipped image written by Python's gzip module: the minimal
+    /// carrier tape, `gzip.compress(tape, mtime=0)`.
+    #[test]
+    fn reads_an_image_gzipped_by_another_tool() {
+        let gz = [
+            0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xFF, 0x0B, 0x75, 0x75, 0x53,
+            0x70, 0xCB, 0xCC, 0x49, 0x55, 0x64, 0xE0, 0x62, 0x10, 0x60, 0x64, 0x62, 0x60, 0x60,
+            0x60, 0x61, 0x00, 0x00, 0x39, 0x3C, 0x38, 0x83, 0x14, 0x00, 0x00, 0x00,
+        ];
+        let uef = Uef::parse(&gz).expect("parses");
+        assert_eq!(
+            uef.chunks[0].tape(),
+            Ok(Some(TapeChunk::Carrier { cycles: 4 }))
+        );
+    }
+
+    #[test]
     fn bad_images_are_rejected() {
-        assert_eq!(Uef::parse(&[0x1F, 0x8B, 8, 0]), Err(UefError::Gzipped));
+        assert!(matches!(
+            Uef::parse(&[0x1F, 0x8B, 8, 0]),
+            Err(UefError::Gzip(_))
+        ));
         assert!(is_gzipped(&[0x1F, 0x8B]));
         assert_eq!(Uef::parse(b"UEF"), Err(UefError::TooSmall(3)));
         assert_eq!(Uef::parse(b"NOT A UEF!\0\0"), Err(UefError::BadMagic));
@@ -458,9 +536,16 @@ mod tests {
                 available: 1
             })
         );
+        use std::error::Error as _;
+        assert!(
+            UefError::Gzip(deflate::Error::UnexpectedEof)
+                .source()
+                .is_some()
+        );
+        assert!(UefError::BadMagic.source().is_none());
         for e in [
             UefError::TooSmall(1),
-            UefError::Gzipped,
+            UefError::Gzip(deflate::Error::UnexpectedEof),
             UefError::BadMagic,
             UefError::MalformedChunk { id: 1, needed: 2 },
             UefError::ChunkTooLong { id: 1 },
