@@ -1,0 +1,13 @@
+[package]
+name = "format198x-sinclair-zx81-p"
+description = "Sinclair ZX81 .p/.p81 tape images — dependency-free decoding and encoding."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["sinclair", "zx81", "tape", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
