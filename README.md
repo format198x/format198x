@@ -34,6 +34,7 @@ not just the 198x projects.
 | [`format198x-commodore-c64-t64`](crates/format198x-commodore-c64-t64) | C64 T64 tape containers — read, write | Initial release |
 | [`format198x-commodore-c64-tap`](crates/format198x-commodore-c64-tap) | Commodore TAP datasette pulse images — read, write | Initial release |
 | [`format198x-commodore-vic-20-crt`](crates/format198x-commodore-vic-20-crt) | VIC-20 CRT and raw cartridge images — read, write | Initial release |
+| [`format198x-deflate`](crates/format198x-deflate) | DEFLATE with its zlib and gzip wrappers — inflate and deflate, checksums verified, `no_std` | Initial release |
 | [`format198x-dragon-data-dragon-bin`](crates/format198x-dragon-data-dragon-bin) | DragonDOS BIN machine-code files — read, write | Initial release |
 | [`format198x-dragon-data-dragon-cas`](crates/format198x-dragon-data-dragon-cas) | Dragon CAS cassette images — blocks, checksums, read, write | Initial release |
 | [`format198x-dragon-data-dragon-disk`](crates/format198x-dragon-data-dragon-disk) | Dragon VDK disk images — read, write | Initial release |
