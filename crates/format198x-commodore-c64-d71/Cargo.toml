@@ -1,0 +1,13 @@
+[package]
+name = "format198x-commodore-c64-d71"
+description = "Commodore 1571 D71 disk images — dependency-free sector access, directory reading and encoding."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["commodore", "c128", "d71", "disk", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
