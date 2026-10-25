@@ -2,9 +2,9 @@
 
 > Read [`PRINCIPLES.md`](PRINCIPLES.md) first. [`MANIFESTO.md`](MANIFESTO.md) is why the project exists.
 
-The 198x family's standalone retro disk- and media-**format** crates: small,
-dependency-free Rust libraries that read and write the on-disk formats of
-1970s–1990s computers. See [`../../AGENTS.md`](../../AGENTS.md) for umbrella
+The 198x family's standalone retro disk- and media-**format** crates: small
+Rust libraries, free of outside dependencies, that read and write the on-disk
+formats of 1970s–1990s computers. See [`../../AGENTS.md`](../../AGENTS.md) for umbrella
 context and cross-project rules.
 
 ## What this is
