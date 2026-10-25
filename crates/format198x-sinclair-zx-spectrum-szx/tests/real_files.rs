@@ -11,7 +11,7 @@
 //! ```
 //!
 //! Every file must also write back byte for byte, which is what a lossless
-//! container promises.
+//! container promises, and every RAM page must inflate to 16K.
 
 use format198x_sinclair_zx_spectrum_szx::Szx;
 use std::path::PathBuf;
@@ -48,7 +48,7 @@ fn reads_the_128k_timing_suite() {
     assert_eq!(banks, (0..8).collect::<Vec<u8>>());
     let distinct = pages
         .iter()
-        .map(|p| p.data)
+        .map(|p| p.page().expect("every page inflates to 16K").into_owned())
         .collect::<std::collections::BTreeSet<_>>()
         .len();
     assert!(distinct > 1, "the banks must not all be one page");
@@ -72,8 +72,16 @@ fn reads_every_szx_in_the_corpus() {
         seen += 1;
         let bytes = std::fs::read(&path).expect("readable");
         match Szx::parse(&bytes) {
-            Ok(szx) if szx.encode().ok().as_deref() == Some(&bytes[..]) => {}
-            Ok(_) => failures.push(format!("{}: did not write back", path.display())),
+            Ok(szx) if szx.encode().ok().as_deref() != Some(&bytes[..]) => {
+                failures.push(format!("{}: did not write back", path.display()));
+            }
+            Ok(szx) => {
+                for page in szx.ram_pages().unwrap_or_default() {
+                    if let Err(e) = page.page() {
+                        failures.push(format!("{}: {e}", path.display()));
+                    }
+                }
+            }
             Err(e) => failures.push(format!("{}: {e}", path.display())),
         }
     }

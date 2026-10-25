@@ -143,6 +143,9 @@ version = "0.1.0"
 [[package]]
 name = "format198x-sinclair-zx-spectrum-szx"
 version = "0.1.0"
+dependencies = [
+ "format198x-deflate",
+]
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-tap"

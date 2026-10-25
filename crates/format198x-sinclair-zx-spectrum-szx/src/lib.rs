@@ -18,16 +18,22 @@
 //! | `RAMP` | [`RamPage`] | one 16K RAM bank, optionally zlib-compressed |
 //! | `AY\0\0` | [`AyBlock`] | the selected AY register and all sixteen |
 //!
-//! # Compression is the caller's
+//! # Compression
 //!
-//! A `RAMP` chunk's page may be zlib-compressed. This crate has no
-//! dependencies, so [`RamPage`] keeps the bytes as stored and says whether
-//! they are compressed. Pages it writes are uncompressed, which the format
-//! allows.
+//! A `RAMP` chunk's page may be zlib-compressed. [`RamPage`] keeps the bytes
+//! as stored, so a file writes back unchanged, and [`RamPage::page`] returns
+//! the 16K page, inflating it with the family's own [`format198x_deflate`]
+//! crate (re-exported as [`deflate`]). [`Chunk::compressed_ram_page`] writes
+//! a compressed page and [`Chunk::uncompressed_ram_page`] a plain one; the
+//! format allows both.
 //!
 //! RAM pages are numbered by bank, 0 to 7; a 48K uses banks 5, 2 and 0 for
 //! `$4000`, `$8000` and `$C000`. Mapping banks into a machine is the
 //! emulator's business.
+
+pub use format198x_deflate as deflate;
+use format198x_deflate::{Level, Options, zlib};
+use std::borrow::Cow;
 
 /// The 4-byte signature.
 const MAGIC: &[u8; 4] = b"ZXST";
@@ -148,11 +154,40 @@ pub struct RamPage<'a> {
     pub data: &'a [u8],
 }
 
-impl RamPage<'_> {
+impl<'a> RamPage<'a> {
     /// Whether the page is zlib-compressed.
     #[must_use]
     pub fn is_compressed(&self) -> bool {
         self.flags & RAMP_FLAG_COMPRESSED != 0
+    }
+
+    /// The 16K page, inflated if it is compressed.
+    ///
+    /// Bytes after the zlib stream are ignored, as zlib's own reader does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SzxError::Inflate`] for a damaged zlib stream, and
+    /// [`SzxError::PageLength`] unless the page is exactly 16K.
+    pub fn page(&self) -> Result<Cow<'a, [u8]>, SzxError> {
+        let page = if self.is_compressed() {
+            let options = Options::default().max_output(PAGE_LEN).allow_trailing(true);
+            Cow::Owned(zlib::decode_with(self.data, &options).map_err(|error| {
+                SzxError::Inflate {
+                    id: *b"RAMP",
+                    error,
+                }
+            })?)
+        } else {
+            Cow::Borrowed(self.data)
+        };
+        if page.len() != PAGE_LEN {
+            return Err(SzxError::PageLength {
+                bank: self.bank,
+                len: page.len(),
+            });
+        }
+        Ok(page)
     }
 }
 
@@ -193,6 +228,20 @@ pub enum SzxError {
     },
     /// On encode: a chunk is over 4 GiB, or a page is not 16K.
     BadLength,
+    /// A compressed chunk's zlib stream is damaged.
+    Inflate {
+        /// Chunk id.
+        id: [u8; 4],
+        /// What went wrong.
+        error: deflate::Error,
+    },
+    /// A RAM page is not 16K once inflated.
+    PageLength {
+        /// RAM bank number.
+        bank: u8,
+        /// The page's length.
+        len: usize,
+    },
 }
 
 impl core::fmt::Display for SzxError {
@@ -218,11 +267,24 @@ impl core::fmt::Display for SzxError {
                 write!(f, "SZX chunk {} is shorter than its fields", name(id))
             }
             Self::BadLength => write!(f, "SZX chunk or page has the wrong length"),
+            Self::Inflate { id, error } => {
+                write!(f, "SZX chunk {} does not inflate: {error}", name(id))
+            }
+            Self::PageLength { bank, len } => {
+                write!(f, "SZX RAM page {bank} is {len} bytes, not 16K")
+            }
         }
     }
 }
 
-impl std::error::Error for SzxError {}
+impl std::error::Error for SzxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Inflate { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 fn word(data: &[u8], at: usize) -> u16 {
     u16::from_le_bytes([data[at], data[at + 1]])
@@ -491,6 +553,21 @@ impl Chunk {
         Ok(Self { id: *b"RAMP", data })
     }
 
+    /// A zlib-compressed `RAMP` chunk, as Spectaculator writes them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SzxError::BadLength`] unless the page is 16K.
+    pub fn compressed_ram_page(bank: u8, page: &[u8], level: Level) -> Result<Self, SzxError> {
+        if page.len() != PAGE_LEN {
+            return Err(SzxError::BadLength);
+        }
+        let mut data = RAMP_FLAG_COMPRESSED.to_le_bytes().to_vec();
+        data.push(bank);
+        data.extend_from_slice(&zlib::encode(page, level));
+        Ok(Self { id: *b"RAMP", data })
+    }
+
     /// An `AY\0\0` chunk.
     #[must_use]
     pub fn from_ay(ay: &AyBlock) -> Self {
@@ -604,7 +681,43 @@ mod tests {
     }
 
     #[test]
-    fn compressed_pages_are_kept_as_stored() {
+    fn compressed_pages_inflate_and_write_back_as_stored() {
+        let mut page = [0u8; PAGE_LEN];
+        page[0x1800..0x1B00].fill(0x38);
+        let chunk = Chunk::compressed_ram_page(5, &page, Level::DEFAULT).expect("16K");
+        assert!(chunk.data.len() < 200);
+        let mut szx = Szx::new(1, 4, 1, 0);
+        szx.chunks.push(chunk);
+        let bytes = szx.encode().expect("encodes");
+        let back = Szx::parse(&bytes).expect("parses");
+        assert_eq!(back.encode().expect("encodes"), bytes);
+        let ramp = back.ram_pages().expect("ok")[0];
+        assert!(ramp.is_compressed());
+        assert_eq!(ramp.bank, 5);
+        assert_eq!(ramp.page().expect("inflates")[..], page[..]);
+        assert_eq!(
+            Chunk::compressed_ram_page(0, &[0; 10], Level::DEFAULT),
+            Err(SzxError::BadLength)
+        );
+    }
+
+    /// A page compressed by Python's `zlib.compress(bytes(16384))`.
+    #[test]
+    fn reads_a_page_compressed_by_another_tool() {
+        let mut data = vec![1, 0, 2];
+        data.extend_from_slice(&[
+            0x78, 0x9C, 0xED, 0xC1, 0x31, 0x01, 0x00, 0x00, 0x00, 0xC2, 0xA0, 0xF5, 0x4F, 0x6D,
+            0x0C, 0x1F, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x80, 0xB7, 0x01, 0x40, 0x00, 0x00, 0x01,
+        ]);
+        let chunk = Chunk { id: *b"RAMP", data };
+        let page = chunk.ram_page().expect("ok").page().expect("inflates");
+        assert_eq!(page.len(), PAGE_LEN);
+        assert!(page.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn bad_pages_are_errors() {
         let chunk = Chunk {
             id: *b"RAMP",
             data: vec![1, 0, 5, 0x78, 0x9C, 0xAB],
@@ -612,6 +725,31 @@ mod tests {
         let page = chunk.ram_page().expect("ok");
         assert!(page.is_compressed());
         assert_eq!(page.data, [0x78, 0x9C, 0xAB]);
+        assert!(matches!(
+            page.page(),
+            Err(SzxError::Inflate {
+                id: [b'R', b'A', b'M', b'P'],
+                ..
+            })
+        ));
+        let short = Chunk {
+            id: *b"RAMP",
+            data: vec![0, 0, 5, 1, 2, 3],
+        };
+        assert_eq!(
+            short.ram_page().expect("ok").page(),
+            Err(SzxError::PageLength { bank: 5, len: 3 })
+        );
+        let mut big = vec![1, 0, 6];
+        big.extend(zlib::encode(&[0; PAGE_LEN + 1], Level::DEFAULT));
+        let big = Chunk {
+            id: *b"RAMP",
+            data: big,
+        };
+        assert!(matches!(
+            big.ram_page().expect("ok").page(),
+            Err(SzxError::Inflate { .. })
+        ));
     }
 
     #[test]
@@ -665,7 +803,14 @@ mod tests {
             },
             SzxError::ShortChunk { id: *b"Z80R" },
             SzxError::BadLength,
+            SzxError::Inflate {
+                id: *b"RAMP",
+                error: deflate::Error::UnexpectedEof,
+            },
+            SzxError::PageLength { bank: 1, len: 2 },
         ] {
+            use std::error::Error as _;
+            assert_eq!(e.source().is_some(), matches!(e, SzxError::Inflate { .. }));
             assert!(!e.to_string().is_empty());
         }
     }
