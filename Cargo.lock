@@ -9,6 +9,9 @@ version = "0.1.0"
 [[package]]
 name = "format198x-acorn-uef"
 version = "0.1.0"
+dependencies = [
+ "format198x-deflate",
+]
 
 [[package]]
 name = "format198x-amstrad-cpc-dsk"
