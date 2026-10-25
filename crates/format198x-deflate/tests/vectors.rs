@@ -91,7 +91,7 @@ fn gzip_members_and_every_header_field() {
 
 #[test]
 fn a_two_member_file_joins() {
-    let text = read("text.bin");
+    let text = read("text.txt");
     let member = gzip::decode(&read("multi.gz")).expect("decodes");
     assert_eq!(&member.data[..text.len()], &text[..]);
     assert_eq!(&member.data[text.len()..], b"hello, world\n");
@@ -101,7 +101,7 @@ fn a_two_member_file_joins() {
 
 #[test]
 fn the_text_matches_byte_for_byte() {
-    let text = read("text.bin");
+    let text = read("text.txt");
     assert_eq!(zlib::decode(&read("text.l9.zlib")).expect("decodes"), text);
 }
 

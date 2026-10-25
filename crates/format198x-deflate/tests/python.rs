@@ -38,7 +38,7 @@ sys.exit(1 if bad else 0)
 
 fn inputs() -> Vec<(String, Vec<u8>)> {
     let vectors = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vectors");
-    let text = std::fs::read(vectors.join("text.bin")).expect("text vector");
+    let text = std::fs::read(vectors.join("text.txt")).expect("text vector");
     let mut noise = Vec::new();
     let mut x: u32 = 7;
     for _ in 0..70_000 {

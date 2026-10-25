@@ -16,7 +16,7 @@ Writes, next to this script:
 - <name>.gz: gzip.compress with mtime 0;
 - <name>.full.gz: a member with FTEXT, FEXTRA, FNAME, FCOMMENT and FHCRC;
 - multi.gz: two members, "text" then "hello", one after the other;
-- text.bin: the text input itself, for a byte-for-byte comparison.
+- text.txt: the text input itself, for a byte-for-byte comparison.
 """
 
 import gzip
@@ -98,7 +98,7 @@ def main():
         write(f"{name}.gz", gzip.compress(data, 6, mtime=0))
         write(f"{name}.full.gz", full_gzip(data))
     write("multi.gz", gzip.compress(INPUTS["text"], mtime=0) + gzip.compress(INPUTS["hello"], mtime=0))
-    write("text.bin", INPUTS["text"])
+    write("text.txt", INPUTS["text"])
     write("MANIFEST", ("\n".join(manifest) + "\n").encode())
 
 
