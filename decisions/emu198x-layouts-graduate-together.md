@@ -34,7 +34,15 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
    Spectrum, not a file, so it stays in Emu198x and its adapters convert.
    The crates here keep each file's own fields so they write back
    faithfully.
-6. **Names follow Emu198x's system segment** so the phase-2 switch is a
+6. **Compression stays outside.** UEF files are gzipped whole, and SZX and
+   RZX compress payloads with zlib. Without dependencies these crates keep
+   compressed bytes as stored and say so (`UefError::Gzipped`,
+   `RamPage::is_compressed`, `InputBlock::is_compressed`); Emu198x's
+   adapters inflate with `flate2`. Writers emit uncompressed data, which
+   all three formats allow. Whether the family wants its own inflate, so
+   these crates can stand alone on real files, is an open question for the
+   umbrella, not decided here.
+7. **Names follow Emu198x's system segment** so the phase-2 switch is a
    mechanical rename, with one exception: Memotech's crate gains a format
    segment, `format198x-memotech-mtx-mtx`, and carries `.RUN` too.
 
@@ -48,6 +56,9 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
   Emu198x read mode 3 as a 128K and modes 6 and 7 as a +2A.
 - `.sna`: a 48K snapshot whose `SP` is outside RAM parses, with
   `Sna::pc` returning `None`; Emu198x rejected it.
+- RZX: blocks stay in file order, so multi-snapshot files survive; Emu198x
+  kept only the last snapshot.
+- UEF floats are read with `f32::from_le_bytes`, which handles zero.
 - Jupiter Ace and Memotech MTX return typed errors instead of strings, with
   the same messages.
 

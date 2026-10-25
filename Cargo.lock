@@ -7,6 +7,10 @@ name = "format198x-acorn-atom-atm"
 version = "0.1.0"
 
 [[package]]
+name = "format198x-acorn-uef"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-amstrad-cpc-dsk"
 version = "0.1.1"
 
@@ -118,11 +122,19 @@ name = "format198x-sinclair-zx-spectrum-bas"
 version = "0.1.3"
 
 [[package]]
+name = "format198x-sinclair-zx-spectrum-rzx"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-sinclair-zx-spectrum-scr"
 version = "0.1.1"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-sna"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-sinclair-zx-spectrum-szx"
 version = "0.1.0"
 
 [[package]]
