@@ -28,7 +28,13 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
    import commit names the source commit and the `git log` command that
    shows it. Replaying it would break the rule that every commit subject here
    is a conventional commit, which several of those subjects are not.
-5. **Names follow Emu198x's system segment** so the phase-2 switch is a
+5. **Snapshots get file-shaped types.** Emu198x's `.sna` and `.z80`
+   readers produced its shared machine-state `Snapshot`
+   (`format-sinclair-zx-spectrum-snapshot`). That type models a running
+   Spectrum, not a file, so it stays in Emu198x and its adapters convert.
+   The crates here keep each file's own fields so they write back
+   faithfully.
+6. **Names follow Emu198x's system segment** so the phase-2 switch is a
    mechanical rename, with one exception: Memotech's crate gains a format
    segment, `format198x-memotech-mtx-mtx`, and carries `.RUN` too.
 
@@ -38,6 +44,10 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
   bytes. The Emu198x parser read boot sector 3 as sector 2.
 - PRG: a two-byte file is a valid PRG with an empty payload. Emu198x
   required three bytes.
+- `.z80`: hardware modes follow the published table for version 3, where
+  Emu198x read mode 3 as a 128K and modes 6 and 7 as a +2A.
+- `.sna`: a 48K snapshot whose `SP` is outside RAM parses, with
+  `Sna::pc` returning `None`; Emu198x rejected it.
 - Jupiter Ace and Memotech MTX return typed errors instead of strings, with
   the same messages.
 
