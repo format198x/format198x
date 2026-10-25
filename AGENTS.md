@@ -21,7 +21,9 @@ A format crate is not started here. It graduates here from the project that
 first needed it, once it has a standalone consumer — see
 [`../../decisions/formats-graduate-to-their-own-projects.md`](../../decisions/formats-graduate-to-their-own-projects.md).
 Before adding a crate, check that the format has left its originating project
-for a reason that decision recognises.
+for a reason that decision recognises. Emu198x's `format-*` layouts are the
+exception: since 2026-10-25 they all move here, second reader or not
+([`decisions/emu198x-layouts-graduate-together.md`](decisions/emu198x-layouts-graduate-together.md)).
 
 ## Naming
 
