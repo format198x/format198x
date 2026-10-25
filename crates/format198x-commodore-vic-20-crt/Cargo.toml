@@ -1,0 +1,13 @@
+[package]
+name = "format198x-commodore-vic-20-crt"
+description = "Commodore VIC-20 CRT and raw cartridge images — dependency-free decoding and encoding."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["commodore", "vic-20", "crt", "cartridge", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
