@@ -1,0 +1,13 @@
+[package]
+name = "format198x-acorn-uef"
+description = "Acorn UEF tape images — dependency-free decoding and encoding of the chunk container and its tape chunks."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["acorn", "bbc-micro", "electron", "uef", "tape"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
