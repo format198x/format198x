@@ -1,7 +1,7 @@
 # format198x — the 198x family's retro disk/media format libraries.
 #
-# A workspace of independent, dependency-free format crates (Amiga ADF today;
-# C64 D64, Spectrum TAP, and others as they graduate from build198x modules).
+# A workspace of independent, dependency-free format crates, graduated from
+# the family projects (Emu198x, Build198x, Asm198x) that first needed them.
 # Each crate is versioned and published to crates.io independently — there is
 # no shared workspace version and no binary, so releases stay per-crate and
 # uncoupled (see release-plz.toml).

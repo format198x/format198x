@@ -3,8 +3,16 @@
 version = 4
 
 [[package]]
+name = "format198x-acorn-atom-atm"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-amstrad-cpc-dsk"
 version = "0.1.1"
+
+[[package]]
+name = "format198x-atari-8bit-atr"
+version = "0.1.0"
 
 [[package]]
 name = "format198x-atari-8bit-xex"
@@ -38,8 +46,72 @@ name = "format198x-commodore-c64-bas"
 version = "0.1.1"
 
 [[package]]
+name = "format198x-commodore-c64-crt"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-d64"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-d71"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-d81"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-g64"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-commodore-c64-koala"
 version = "0.1.1"
+
+[[package]]
+name = "format198x-commodore-c64-p00"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-prg"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-t64"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-c64-tap"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-commodore-vic-20-crt"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-dragon-bin"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-dragon-cas"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-dragon-disk"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-dragon-pak"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-jupiter-ace-ace"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-memotech-mtx-mtx"
+version = "0.1.0"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-bas"
@@ -52,6 +124,14 @@ version = "0.1.1"
 [[package]]
 name = "format198x-sinclair-zx-spectrum-tap"
 version = "0.1.1"
+
+[[package]]
+name = "format198x-sinclair-zx80-o"
+version = "0.1.0"
+
+[[package]]
+name = "format198x-sinclair-zx81-p"
+version = "0.1.0"
 
 [[package]]
 name = "format198x-spectravideo-svi-cas"
