@@ -19,13 +19,18 @@
 //! and recording blocks, and blocks this crate does not know (such as the
 //! `$20` security information and `$21` signature), write back as read.
 //!
-//! # Compression is the caller's
+//! # Compression
 //!
-//! Snapshot data and frame streams may be zlib-compressed (flag bit 1). This
-//! crate has no dependencies, so it keeps those bytes as stored and says
-//! whether they are compressed. [`InputBlock::frames`] decodes an
-//! uncompressed stream; for a compressed one, inflate
-//! [`InputBlock::stream`] and pass it to [`decode_frames`].
+//! Snapshot data and frame streams may be zlib-compressed (flag bit 1).
+//! Blocks keep those bytes as stored, so a file writes back unchanged.
+//! [`SnapshotBlock::snapshot`] and [`InputBlock::frames`] inflate them with
+//! the family's own [`format198x_deflate`] crate (re-exported as
+//! [`deflate`]), and [`SnapshotBlock::compressed`] and
+//! [`InputBlock::from_frames_compressed`] write compressed blocks.
+
+pub use format198x_deflate as deflate;
+use format198x_deflate::{Level, Options, zlib};
+use std::borrow::Cow;
 
 /// The 4-byte signature.
 const MAGIC: &[u8; 4] = b"RZX!";
@@ -99,10 +104,56 @@ impl SnapshotBlock {
         })
     }
 
+    /// An embedded snapshot, zlib-compressed at `level`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RzxError::TooLong`] for data over 4 GiB.
+    pub fn compressed(extension: [u8; 4], data: &[u8], level: Level) -> Result<Self, RzxError> {
+        let uncompressed_len = u32::try_from(data.len()).map_err(|_| RzxError::TooLong)?;
+        Ok(Self {
+            flags: FLAG_COMPRESSED,
+            extension,
+            uncompressed_len,
+            data: zlib::encode(data, level),
+        })
+    }
+
     /// Whether the data is zlib-compressed.
     #[must_use]
     pub fn is_compressed(&self) -> bool {
         self.flags & FLAG_COMPRESSED != 0
+    }
+
+    /// The embedded snapshot, inflated if it is compressed.
+    ///
+    /// A compressed snapshot may not inflate past
+    /// [`uncompressed_len`](Self::uncompressed_len), and must fill it.
+    /// Bytes after the zlib stream are ignored, as zlib's own reader does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RzxError::External`] for a block that names an external
+    /// file, [`RzxError::Inflate`] for a damaged zlib stream, and
+    /// [`RzxError::SnapshotLength`] when the inflated length is not the
+    /// declared one.
+    pub fn snapshot(&self) -> Result<Cow<'_, [u8]>, RzxError> {
+        if self.is_external() {
+            return Err(RzxError::External);
+        }
+        if !self.is_compressed() {
+            return Ok(Cow::Borrowed(&self.data));
+        }
+        let expected = usize::try_from(self.uncompressed_len).unwrap_or(usize::MAX);
+        let options = Options::default().max_output(expected).allow_trailing(true);
+        let data = zlib::decode_with(&self.data, &options).map_err(RzxError::Inflate)?;
+        if data.len() != expected {
+            return Err(RzxError::SnapshotLength {
+                expected: self.uncompressed_len,
+                actual: data.len(),
+            });
+        }
+        Ok(Cow::Owned(data))
     }
 
     /// Whether the block names an external file.
@@ -153,23 +204,61 @@ impl InputBlock {
         })
     }
 
+    /// A zlib-compressed block holding `frames`.
+    ///
+    /// # Errors
+    ///
+    /// As [`InputBlock::from_frames`].
+    pub fn from_frames_compressed(
+        tstate_counter: u32,
+        frames: &[Frame],
+        level: Level,
+    ) -> Result<Self, RzxError> {
+        let mut block = Self::from_frames(tstate_counter, frames)?;
+        block.stream = zlib::encode(&block.stream, level);
+        block.flags |= FLAG_COMPRESSED;
+        Ok(block)
+    }
+
     /// Whether the frame stream is zlib-compressed.
     #[must_use]
     pub fn is_compressed(&self) -> bool {
         self.flags & FLAG_COMPRESSED != 0
     }
 
-    /// Decode the frames of an uncompressed, unprotected stream.
+    /// Whether the frame stream is protected (encrypted).
+    #[must_use]
+    pub fn is_protected(&self) -> bool {
+        self.flags & INPUT_FLAG_PROTECTED != 0
+    }
+
+    /// The frame stream, inflated if it is compressed. Bytes after the zlib
+    /// stream are ignored, as zlib's own reader does.
     ///
     /// # Errors
     ///
-    /// Returns [`RzxError::Compressed`] for a compressed or protected
-    /// stream, and the errors of [`decode_frames`].
-    pub fn frames(&self) -> Result<Vec<Frame>, RzxError> {
-        if self.is_compressed() || self.flags & INPUT_FLAG_PROTECTED != 0 {
-            return Err(RzxError::Compressed);
+    /// Returns [`RzxError::Inflate`] for a damaged zlib stream.
+    pub fn frame_stream(&self) -> Result<Cow<'_, [u8]>, RzxError> {
+        if !self.is_compressed() {
+            return Ok(Cow::Borrowed(&self.stream));
         }
-        decode_frames(&self.stream, self.frame_count)
+        let options = Options::default().allow_trailing(true);
+        zlib::decode_with(&self.stream, &options)
+            .map(Cow::Owned)
+            .map_err(RzxError::Inflate)
+    }
+
+    /// Decode the frames, inflating a compressed stream first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RzxError::Protected`] for a protected stream, the errors
+    /// of [`InputBlock::frame_stream`], and those of [`decode_frames`].
+    pub fn frames(&self) -> Result<Vec<Frame>, RzxError> {
+        if self.is_protected() {
+            return Err(RzxError::Protected);
+        }
+        decode_frames(&self.frame_stream()?, self.frame_count)
     }
 }
 
@@ -231,8 +320,20 @@ pub enum RzxError {
         /// Index of the frame that failed.
         frame: usize,
     },
-    /// The frame stream is compressed or protected; decode it first.
-    Compressed,
+    /// The frame stream is protected (encrypted), which this crate cannot
+    /// read.
+    Protected,
+    /// The snapshot block names an external file instead of holding one.
+    External,
+    /// A compressed snapshot or frame stream does not inflate.
+    Inflate(deflate::Error),
+    /// A compressed snapshot does not inflate to its declared length.
+    SnapshotLength {
+        /// The declared length.
+        expected: u32,
+        /// The inflated length.
+        actual: usize,
+    },
     /// On encode: a length does not fit its field.
     TooLong,
 }
@@ -251,16 +352,26 @@ impl core::fmt::Display for RzxError {
             }
             Self::ShortBlock { id } => write!(f, "RZX block ${id:02X} is shorter than its fields"),
             Self::BadFrames { frame } => write!(f, "RZX frame {frame} is truncated or missing"),
-            Self::Compressed => write!(
+            Self::Protected => write!(f, "RZX frame stream is protected"),
+            Self::External => write!(f, "RZX snapshot is in an external file"),
+            Self::Inflate(e) => write!(f, "RZX data does not inflate: {e}"),
+            Self::SnapshotLength { expected, actual } => write!(
                 f,
-                "RZX frame stream is compressed or protected; decode it first"
+                "RZX snapshot inflates to {actual} bytes, not the declared {expected}"
             ),
             Self::TooLong => write!(f, "RZX data is too long for its length field"),
         }
     }
 }
 
-impl std::error::Error for RzxError {}
+impl std::error::Error for RzxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Inflate(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 fn u16_at(data: &[u8], at: usize) -> u16 {
     u16::from_le_bytes([data[at], data[at + 1]])
@@ -564,18 +675,77 @@ mod tests {
     }
 
     #[test]
-    fn compressed_streams_are_left_to_the_caller() {
+    fn compressed_blocks_inflate_and_write_back_as_stored() {
+        let input = InputBlock::from_frames_compressed(7, &frames(), Level::BEST).expect("fits");
+        assert!(input.is_compressed());
+        assert_eq!(&input.stream[..2], [0x78, 0xDA]);
+        assert_eq!(input.frames(), Ok(frames()));
+        let snapshot = vec![0xAA; 49_179];
+        let snap = SnapshotBlock::compressed(*b"sna\0", &snapshot, Level::DEFAULT).expect("fits");
+        assert!(snap.is_compressed() && snap.data.len() < 1000);
+        assert_eq!(snap.snapshot().expect("inflates")[..], snapshot[..]);
+        let rzx = Rzx {
+            major: 0,
+            minor: 13,
+            flags: 0,
+            blocks: vec![Block::Snapshot(snap), Block::Input(input)],
+        };
+        let bytes = rzx.encode().expect("encodes");
+        let back = Rzx::parse(&bytes).expect("parses");
+        assert_eq!(back, rzx);
+        assert_eq!(back.encode().expect("encodes"), bytes);
+    }
+
+    /// Streams compressed by Python's `zlib.compress`: the sample frames,
+    /// and a 64-byte snapshot of `0x55`.
+    #[test]
+    fn reads_blocks_compressed_by_another_tool() {
         let mut input = InputBlock::from_frames(0, &frames()).expect("fits");
         input.flags = FLAG_COMPRESSED;
-        assert!(input.is_compressed());
-        assert_eq!(input.frames(), Err(RzxError::Compressed));
+        input.stream = vec![
+            0x78, 0x9C, 0x4B, 0x61, 0x60, 0x62, 0xD8, 0xFF, 0x3F, 0x95, 0xE1, 0xFF, 0xFF, 0x34,
+            0x06, 0x06, 0x06, 0x00, 0x25, 0xC0, 0x04, 0xEE,
+        ];
+        assert_eq!(input.frames(), Ok(frames()));
+        let snap = SnapshotBlock {
+            flags: FLAG_COMPRESSED,
+            extension: *b"z80\0",
+            uncompressed_len: 64,
+            data: vec![
+                0x78, 0x9C, 0x0B, 0x0D, 0xA5, 0x0C, 0x00, 0x00, 0xB2, 0xFE, 0x15, 0x41,
+            ],
+        };
+        assert_eq!(snap.snapshot().expect("inflates")[..], [0x55; 64]);
+    }
+
+    #[test]
+    fn unreadable_payloads_are_errors() {
+        let mut input = InputBlock::from_frames(0, &frames()).expect("fits");
         input.flags = INPUT_FLAG_PROTECTED;
-        assert_eq!(input.frames(), Err(RzxError::Compressed));
-        let Some(Block::Snapshot(snap)) = sample().blocks.get(3).cloned() else {
+        assert!(input.is_protected());
+        assert_eq!(input.frames(), Err(RzxError::Protected));
+        input.flags = FLAG_COMPRESSED;
+        assert!(matches!(input.frames(), Err(RzxError::Inflate(_))));
+        let Some(Block::Snapshot(mut snap)) = sample().blocks.get(3).cloned() else {
             panic!("snapshot block");
         };
         assert!(snap.is_compressed());
         assert!(!snap.is_external());
+        assert!(matches!(snap.snapshot(), Err(RzxError::Inflate(_))));
+        snap.data = zlib::encode(&[1; 999], Level::DEFAULT);
+        assert_eq!(
+            snap.snapshot(),
+            Err(RzxError::SnapshotLength {
+                expected: 1000,
+                actual: 999
+            })
+        );
+        snap.data = zlib::encode(&[1; 1001], Level::DEFAULT);
+        assert!(matches!(snap.snapshot(), Err(RzxError::Inflate(_))));
+        snap.flags = SNAPSHOT_FLAG_EXTERNAL;
+        assert_eq!(snap.snapshot(), Err(RzxError::External));
+        let plain = SnapshotBlock::embedded(*b"sna\0", vec![1, 2]).expect("fits");
+        assert_eq!(plain.snapshot().expect("plain")[..], [1, 2]);
         let Some(Block::Creator(creator)) = sample().blocks.first().cloned() else {
             panic!("creator block");
         };
@@ -637,9 +807,17 @@ mod tests {
             RzxError::TruncatedBlock { offset: 1 },
             RzxError::ShortBlock { id: 1 },
             RzxError::BadFrames { frame: 1 },
-            RzxError::Compressed,
+            RzxError::Protected,
+            RzxError::External,
+            RzxError::Inflate(deflate::Error::UnexpectedEof),
+            RzxError::SnapshotLength {
+                expected: 1,
+                actual: 2,
+            },
             RzxError::TooLong,
         ] {
+            use std::error::Error as _;
+            assert_eq!(e.source().is_some(), matches!(e, RzxError::Inflate(_)));
             assert!(!e.to_string().is_empty());
         }
     }

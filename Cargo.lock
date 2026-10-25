@@ -131,6 +131,9 @@ version = "0.1.3"
 [[package]]
 name = "format198x-sinclair-zx-spectrum-rzx"
 version = "0.1.0"
+dependencies = [
+ "format198x-deflate",
+]
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-scr"
