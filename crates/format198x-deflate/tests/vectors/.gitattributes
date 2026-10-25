@@ -1,0 +1,3 @@
+# Test vectors are compared byte for byte. Never convert their line endings,
+# or a Windows checkout turns text.txt LF into CRLF and the vectors stop matching.
+* -text
