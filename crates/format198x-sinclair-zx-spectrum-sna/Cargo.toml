@@ -1,0 +1,13 @@
+[package]
+name = "format198x-sinclair-zx-spectrum-sna"
+description = "ZX Spectrum .sna snapshots — dependency-free decoding and encoding of the 48K and 128K layouts."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["zx-spectrum", "sinclair", "sna", "snapshot", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
