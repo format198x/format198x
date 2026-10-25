@@ -94,6 +94,10 @@ name = "format198x-commodore-vic-20-crt"
 version = "0.1.0"
 
 [[package]]
+name = "format198x-deflate"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-dragon-data-dragon-bin"
 version = "0.1.0"
 
