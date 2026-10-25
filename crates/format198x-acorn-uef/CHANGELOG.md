@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Dependency-free UEF container, split from Emu198x's `format-acorn-uef` at
+- UEF container, split from Emu198x's `format-acorn-uef` at
   emu198x/emu198x@1d70a0a216: lossless chunk reading and writing, typed
   views and constructors for the common tape chunks.
 - Gzipped images are read by `Uef::parse` and written by

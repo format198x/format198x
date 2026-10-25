@@ -34,14 +34,13 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
    Spectrum, not a file, so it stays in Emu198x and its adapters convert.
    The crates here keep each file's own fields so they write back
    faithfully.
-6. **Compression stays outside.** UEF files are gzipped whole, and SZX and
-   RZX compress payloads with zlib. Without dependencies these crates keep
-   compressed bytes as stored and say so (`UefError::Gzipped`,
-   `RamPage::is_compressed`, `InputBlock::is_compressed`); Emu198x's
-   adapters inflate with `flate2`. Writers emit uncompressed data, which
-   all three formats allow. Whether the family wants its own inflate, so
-   these crates can stand alone on real files, is an open question for the
-   umbrella, not decided here.
+6. **Compression comes from the family's own crate.** UEF files are
+   gzipped whole, and SZX and RZX compress payloads with zlib. These
+   crates inflate and compress with `format198x-deflate`, under
+   [`shared-deflate-crate.md`](shared-deflate-crate.md), so they read real
+   files without `flate2`. SZX and RZX keep compressed bytes as stored and
+   inflate on request, so files write back byte for byte; their writers
+   offer compressed and uncompressed output.
 7. **Names follow Emu198x's system segment** so the phase-2 switch is a
    mechanical rename, except where that segment breaks
    `{manufacturer}-{system}-{format}`. Three exceptions, all taken before
@@ -71,6 +70,8 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
 - RZX: blocks stay in file order, so multi-snapshot files survive; Emu198x
   kept only the last snapshot.
 - UEF floats are read with `f32::from_le_bytes`, which handles zero.
+- RZX: a compressed snapshot must inflate to its declared length. Emu198x
+  did not check.
 - Jupiter Ace and Memotech MTX return typed errors instead of strings, with
   the same messages.
 
@@ -80,4 +81,5 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
   the layout and leave the behaviour in Emu198x.
 - Adding `serde` to a crate here for Emu198x's save states. The adapter
   wraps the type instead.
+- Bringing `flate2` back into a crate here. Use `format198x-deflate`.
 - Dropping a writer because Emu198x does not use it.

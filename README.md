@@ -1,8 +1,8 @@
 # format198x
 
 Retro disk- and media-**format** libraries for the [198x] family — a workspace
-of small, dependency-free Rust crates that read and write the on-disk formats of
-1970s–1990s computers.
+of small Rust crates, free of outside dependencies, that read and write the
+on-disk formats of 1970s–1990s computers.
 
 Each crate is independent: its own version, its own crates.io release, no shared
 lockstep. They exist in their own right — usable by any Rust tool or emulator,
@@ -13,7 +13,7 @@ not just the 198x projects.
 | Crate | Format | crates.io |
 |-------|--------|-----------|
 | [`format198x-acorn-atom-atm`](crates/format198x-acorn-atom-atm) | Acorn Atom `.atm` program images — read, write | Initial release |
-| [`format198x-acorn-uef`](crates/format198x-acorn-uef) | Acorn UEF tape images — lossless chunk container, tape chunks, read, write | Initial release |
+| [`format198x-acorn-uef`](crates/format198x-acorn-uef) | Acorn UEF tape images — lossless chunk container, tape chunks, gzipped or not, read, write | Initial release |
 | [`format198x-amstrad-cpc-dsk`](crates/format198x-amstrad-cpc-dsk) | CPCEMU DSK/EDSK reading and standard Spectrum +3DOS disk writing | Initial release |
 | [`format198x-atari-8bit-atr`](crates/format198x-atari-8bit-atr) | Atari 8-bit ATR disk images — all boot-sector layouts, sector access, read, write | Initial release |
 | [`format198x-atari-8bit-xex`](crates/format198x-atari-8bit-xex) | Atari 8-bit XEX segmented executables — ordered, zero-copy parsing | [![crates.io](https://img.shields.io/crates/v/format198x-atari-8bit-xex.svg)](https://crates.io/crates/format198x-atari-8bit-xex) |
@@ -42,10 +42,10 @@ not just the 198x projects.
 | [`format198x-jupiter-ace-ace`](crates/format198x-jupiter-ace-ace) | Jupiter Ace `.ace` snapshots — RLE decode and encode | Initial release |
 | [`format198x-memotech-mtx-mtx`](crates/format198x-memotech-mtx-mtx) | Memotech MTX `.mtx` tape images and `.RUN` programs — read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-bas`](crates/format198x-sinclair-zx-spectrum-bas) | ZX Spectrum BASIC listings — tokenise to stored bytes, list as the 48K ROM does | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-bas.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-bas) |
-| [`format198x-sinclair-zx-spectrum-rzx`](crates/format198x-sinclair-zx-spectrum-rzx) | ZX Spectrum RZX input recordings — blocks in order, frame streams, read, write | Initial release |
+| [`format198x-sinclair-zx-spectrum-rzx`](crates/format198x-sinclair-zx-spectrum-rzx) | ZX Spectrum RZX input recordings — blocks in order, frame streams, zlib payloads, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-scr`](crates/format198x-sinclair-zx-spectrum-scr) | ZX Spectrum SCR screen dumps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-scr.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-scr) |
 | [`format198x-sinclair-zx-spectrum-sna`](crates/format198x-sinclair-zx-spectrum-sna) | ZX Spectrum `.sna` snapshots — 48K and 128K, read, write | Initial release |
-| [`format198x-sinclair-zx-spectrum-szx`](crates/format198x-sinclair-zx-spectrum-szx) | ZX Spectrum `.szx` snapshots — lossless chunk container, state chunks, read, write | Initial release |
+| [`format198x-sinclair-zx-spectrum-szx`](crates/format198x-sinclair-zx-spectrum-szx) | ZX Spectrum `.szx` snapshots — lossless chunk container, state chunks, compressed pages, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-tap`](crates/format198x-sinclair-zx-spectrum-tap) | ZX Spectrum TAP tape images — read, write, block parity | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-tap.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-tap) |
 | [`format198x-sinclair-zx-spectrum-z80`](crates/format198x-sinclair-zx-spectrum-z80) | ZX Spectrum `.z80` snapshots — versions 1 to 3, ED ED compression, read, write | Initial release |
 | [`format198x-sinclair-zx80-o`](crates/format198x-sinclair-zx80-o) | Sinclair ZX80 `.o` tape images — read, write | Initial release |
@@ -66,7 +66,10 @@ standalone consumer. Emu198x's format layouts all move here regardless; see
   extensions collide across machines (ADF, DSK, TAP).
   A standard genuinely shared byte-for-byte by multiple systems may instead
   use `format198x-{standard}`; TZX/CDT is the first such case.
-- **Dependency-free** — `core`/`std` only; pure byte-layout code.
+- **Dependency-free** — `core`/`std` only; pure byte-layout code. The one
+  exception is the family's own `format198x-deflate`, which the crates whose
+  files hold DEFLATE data (UEF, SZX, RZX) depend on; see
+  [`decisions/shared-deflate-crate.md`](decisions/shared-deflate-crate.md).
 - **Deterministic** — the same inputs always produce identical bytes.
 - **Panic-free reads** — malformed input yields a typed error, never a panic.
 
