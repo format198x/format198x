@@ -1,5 +1,5 @@
 [package]
-name = "format198x-dragon-cas"
+name = "format198x-dragon-data-dragon-cas"
 description = "Dragon CAS cassette images — dependency-free decoding and encoding of leaders, blocks and checksums."
 version = "0.1.0"
 edition.workspace = true
