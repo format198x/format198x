@@ -1,4 +1,4 @@
-# format198x-commodore-c64-d71
+# format198x-commodore-c128-d71
 
 Read and write **Commodore 1571 D71 disk images** in Rust.
 
@@ -8,7 +8,7 @@ File-level writing (mastering a disk with files, as the D64 crate does) is not h
 
 ## Provenance
 
-Graduated from Emu198x's `format-commodore-c64-d71` crate (emu198x/emu198x@63fac19e77), whose history of 2 commits stays in that repository.
+Graduated from Emu198x's `format-commodore-c64-d71` crate (emu198x/emu198x@63fac19e77), whose history of 2 commits stays in that repository. It is named for the C128 rather than the C64 because the 1571 is the C128's drive and D71 images are C128 media; Emu198x filed it under the C64.
 
 ## Licence
 

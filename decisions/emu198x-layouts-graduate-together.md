@@ -43,8 +43,20 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
    these crates can stand alone on real files, is an open question for the
    umbrella, not decided here.
 7. **Names follow Emu198x's system segment** so the phase-2 switch is a
-   mechanical rename, with one exception: Memotech's crate gains a format
-   segment, `format198x-memotech-mtx-mtx`, and carries `.RUN` too.
+   mechanical rename, except where that segment breaks
+   `{manufacturer}-{system}-{format}`. Three exceptions, all taken before
+   first publish:
+   - Memotech's crate gains a format segment,
+     `format198x-memotech-mtx-mtx`, and carries `.RUN` too.
+   - The Dragon crates gain the manufacturer: Emu198x's `format-dragon-*`
+     become `format198x-dragon-data-dragon-*` (`bin`, `cas`, `disk`,
+     `pak`). "Dragon" alone is the machine, and Dragon Data made it.
+   - The D71 crate is `format198x-commodore-c128-d71`, not `c64`. The
+     1571 is the C128's drive and D71 images are C128 media.
+
+   `format198x-jupiter-ace-ace` keeps its name: Jupiter Cantab is not in
+   it, but "Jupiter Ace" is how the machine and its media are known, and
+   the umbrella's naming record does not ask for more.
 
 ## Known differences from the Emu198x crates
 

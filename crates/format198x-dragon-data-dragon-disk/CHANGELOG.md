@@ -9,19 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Dependency-free crate graduated from Emu198x's `format-dragon-cas` at
+- Dependency-free crate graduated from Emu198x's `format-dragon-disk` at
   emu198x/emu198x@63fac19e77, with no `serde` or `thiserror`.
-- Decode Dragon CAS images strictly or tolerantly, with namefile headers and checksum checks.
-- Encode blocks back to a CAS stream, keeping stored checksums.
+- Named `format198x-dragon-data-dragon-disk`: the manufacturer, Dragon Data,
+  then the machine, where Emu198x's name had only the machine.
+- Decode and encode VDK images, with sector access and DragonDOS directory lookup.
 
 Independent versions start at 0.1.0; older entries below record Emu198x releases.
 
-## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/format-dragon-cas-v0.2.0) - 2026-06-04
+## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/format-dragon-disk-v0.2.0) - 2026-06-04
 
 ### Other
 
 - *(release)* independent per-machine versioning, baseline 0.2.0
 - Open Emu198x for public release
 - Add Dragon runtime snapshots
-- Add Dragon cassette compatibility matrix
-- Add Dragon CAS parser crate
+- Share DragonDOS directory entry lookup
+- Add Dragon VDK sidecar export
+- Support DragonDOS sector writes
+- Add initial DragonDOS VDK disk support

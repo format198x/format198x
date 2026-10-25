@@ -1,4 +1,4 @@
-# format198x-dragon-pak
+# format198x-dragon-data-dragon-pak
 
 Read and write **Dragon cartridge and PC-Dragon PAK images** in Rust.
 
@@ -8,7 +8,7 @@ The PC-Dragon info block is only partly understood. The encoder writes the field
 
 ## Provenance
 
-Graduated from Emu198x's `format-dragon-pak` crate (emu198x/emu198x@63fac19e77), whose history of 7 commits stays in that repository.
+Graduated from Emu198x's `format-dragon-pak` crate (emu198x/emu198x@63fac19e77), whose history of 7 commits stays in that repository. The name carries the manufacturer, Dragon Data, as well as the machine, as `{manufacturer}-{system}` requires; Emu198x's name had only the machine.
 
 ## Licence
 

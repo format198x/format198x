@@ -1,5 +1,5 @@
 [package]
-name = "format198x-dragon-bin"
+name = "format198x-dragon-data-dragon-bin"
 description = "DragonDOS BIN machine-code program files — dependency-free decoding and encoding."
 version = "0.1.0"
 edition.workspace = true

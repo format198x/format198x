@@ -42,6 +42,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "format198x-commodore-c128-d71"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-commodore-c64-art-studio"
 version = "0.1.1"
 
@@ -55,10 +59,6 @@ version = "0.1.0"
 
 [[package]]
 name = "format198x-commodore-c64-d64"
-version = "0.1.0"
-
-[[package]]
-name = "format198x-commodore-c64-d71"
 version = "0.1.0"
 
 [[package]]
@@ -94,19 +94,19 @@ name = "format198x-commodore-vic-20-crt"
 version = "0.1.0"
 
 [[package]]
-name = "format198x-dragon-bin"
+name = "format198x-dragon-data-dragon-bin"
 version = "0.1.0"
 
 [[package]]
-name = "format198x-dragon-cas"
+name = "format198x-dragon-data-dragon-cas"
 version = "0.1.0"
 
 [[package]]
-name = "format198x-dragon-disk"
+name = "format198x-dragon-data-dragon-disk"
 version = "0.1.0"
 
 [[package]]
-name = "format198x-dragon-pak"
+name = "format198x-dragon-data-dragon-pak"
 version = "0.1.0"
 
 [[package]]
