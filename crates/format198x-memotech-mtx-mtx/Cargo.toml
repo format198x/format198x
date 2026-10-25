@@ -1,0 +1,13 @@
+[package]
+name = "format198x-memotech-mtx-mtx"
+description = "Memotech MTX .mtx tape images and .RUN programs — dependency-free decoding and encoding."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["memotech", "mtx", "tape", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
