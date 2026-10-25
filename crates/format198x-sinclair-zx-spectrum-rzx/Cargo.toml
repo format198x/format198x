@@ -1,6 +1,6 @@
 [package]
 name = "format198x-sinclair-zx-spectrum-rzx"
-description = "ZX Spectrum RZX input recordings — dependency-free decoding and encoding of blocks and frame streams."
+description = "ZX Spectrum RZX input recordings — decoding and encoding of blocks and frame streams, compressed or not."
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,3 +11,9 @@ categories = ["encoding", "parser-implementations"]
 
 [lints]
 workspace = true
+
+[dependencies]
+# The family's own inflate, for zlib-compressed snapshots and frame streams.
+# Path for the workspace, version for crates.io; see
+# decisions/shared-deflate-crate.md.
+format198x-deflate = { version = "0.1.0", path = "../format198x-deflate" }
