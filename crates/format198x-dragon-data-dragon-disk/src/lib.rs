@@ -26,6 +26,49 @@ pub struct DragonDiskImage {
 }
 
 impl DragonDiskImage {
+    /// Builds an image from its geometry and raw sector data in track order,
+    /// as [`DragonDiskImage::data`] returns it.
+    ///
+    /// This is how a caller that stored an image's fields, such as an
+    /// emulator's save state, gets the image back. A VDK file records only
+    /// the tracks and sides; [`parse_vdk`] reads every image as 18 sectors of
+    /// 256 bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DragonDiskParseError::LengthMismatch`] when `data` is not
+    /// exactly the size the geometry implies.
+    pub fn from_parts(
+        tracks: u8,
+        sides: u8,
+        sectors_per_track: u8,
+        sector_size: u16,
+        data: impl Into<Box<[u8]>>,
+    ) -> Result<Self, DragonDiskParseError> {
+        let data = data.into();
+        let expected = usize::from(tracks)
+            * usize::from(sides)
+            * usize::from(sectors_per_track)
+            * usize::from(sector_size);
+        if data.len() != expected {
+            return Err(DragonDiskParseError::LengthMismatch {
+                actual: data.len(),
+                expected,
+                tracks,
+                sides,
+                sectors_per_track,
+                sector_size,
+            });
+        }
+        Ok(Self {
+            tracks,
+            sides,
+            sectors_per_track,
+            sector_size,
+            data,
+        })
+    }
+
     /// Returns a sector by track, side, and one-based sector number.
     #[must_use]
     pub fn sector(&self, track: u8, side: u8, sector: u8) -> Option<&[u8]> {
@@ -240,6 +283,38 @@ pub fn parse_vdk(bytes: &[u8]) -> Result<DragonDiskImage, DragonDiskParseError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_parts_rebuilds_a_parsed_image() {
+        let image = parse_vdk(&minimal_vdk()).expect("the minimal VDK parses");
+        let rebuilt = DragonDiskImage::from_parts(
+            image.tracks,
+            image.sides,
+            image.sectors_per_track,
+            image.sector_size,
+            image.data().to_vec(),
+        )
+        .expect("the parts describe a valid image");
+        assert_eq!(rebuilt, image);
+        assert_eq!(rebuilt.to_vdk_bytes(), image.to_vdk_bytes());
+    }
+
+    #[test]
+    fn from_parts_rejects_data_the_geometry_does_not_fit() {
+        let error = DragonDiskImage::from_parts(40, 1, 18, 256, vec![0; 100])
+            .expect_err("100 bytes is not a 40-track disk");
+        assert_eq!(
+            error,
+            DragonDiskParseError::LengthMismatch {
+                actual: 100,
+                expected: 40 * 18 * 256,
+                tracks: 40,
+                sides: 1,
+                sectors_per_track: 18,
+                sector_size: 256,
+            }
+        );
+    }
 
     fn minimal_vdk() -> Vec<u8> {
         let mut bytes = vec![0; VDK_HEADER_LEN + 40 * 18 * 256];
