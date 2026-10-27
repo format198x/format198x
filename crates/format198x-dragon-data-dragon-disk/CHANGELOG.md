@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/format198x/format198x/compare/format198x-dragon-data-dragon-disk-v0.1.0...format198x-dragon-data-dragon-disk-v0.1.1) - 2026-10-27
+
+### Added
+
+- *(dragon-disk)* rebuild an image from its geometry and sectors
+
 ### Added
 
 - Dependency-free crate graduated from Emu198x's `format-dragon-disk` at
