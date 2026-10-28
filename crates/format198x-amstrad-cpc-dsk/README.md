@@ -51,3 +51,17 @@ The reader graduated from Emu198x's `format-amstrad-dsk` at
 `1464b89faf354bfe098fda88ee6f9df05be3495c`. Its subtree history is retained in
 this repository. Version 0.1.0 starts independent versioning; the old workspace
 versions described emulator releases. See `decisions/amstrad-cpc-dsk.md`.
+
+`parse_container` is an opt-in checked view for adapters that need the physical
+Track Information Block metadata as well as sector records. It retains
+interleaved container slots and TIB track/side, size code, rate/mode, gap and
+filler. Descriptor tables must fit the 256-byte TIB, and all sector payloads
+must fit the declared track. Standard size codes are checked without clamping;
+extended sectors keep their exact stored lengths, including zero.
+
+An absent or entirely zeroed track header becomes an empty slot; a present
+zero-sector header remains identifiable. Address marks and status flags remain
+data, rather than being flattened into controller geometry. Callers reject
+layouts their controllers cannot represent. Existing `parse` compatibility
+behaviour and `DiskImage` struct literals are unchanged. Neither API retains
+all original padding or creator bytes for byte-identical dump rewriting.
