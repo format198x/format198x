@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/format198x/format198x/compare/format198x-amstrad-cpc-dsk-v0.1.1...format198x-amstrad-cpc-dsk-v0.1.2) - 2026-10-28
+
+### Added
+
+- expose a checked DSK container with physical track metadata
+
 ## [0.1.1](https://github.com/format198x/format198x/compare/format198x-amstrad-cpc-dsk-v0.1.0...format198x-amstrad-cpc-dsk-v0.1.1) - 2026-10-16
 
 ### Added
