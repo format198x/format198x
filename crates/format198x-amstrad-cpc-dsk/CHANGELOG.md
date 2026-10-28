@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- expose a checked DSK container with physical track metadata
+- Add `parse_container` for bounded DSK/EDSK decoding with physical track-header metadata and exact stored sector lengths. Controller adapters can reject unrepresentable layouts without parsing the container again. Existing `parse` behaviour and sector-model types stay compatible.
 
 ## [0.1.1](https://github.com/format198x/format198x/compare/format198x-amstrad-cpc-dsk-v0.1.0...format198x-amstrad-cpc-dsk-v0.1.1) - 2026-10-16
 
