@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "format198x-amstrad-cpc-dsk"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "format198x-atari-8bit-atr"
