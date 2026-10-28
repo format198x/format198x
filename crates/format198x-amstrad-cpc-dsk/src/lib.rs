@@ -19,9 +19,11 @@
 //! bounded, standard 180 KiB +3DOS filesystem writer.
 //! [`encode_extended`] encodes the represented sector model without changing it.
 
+mod container;
 mod encode;
 pub mod plus3;
 
+pub use container::{Container, ContainerTrack, TrackHeader, parse_container};
 pub use encode::encode_extended;
 
 /// A floppy sector parsed from a disk image.
@@ -185,6 +187,10 @@ pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
 }
 
 fn parse_track(block: &[u8], extended: bool) -> Result<DiskTrack, String> {
+    parse_track_impl(block, extended, false)
+}
+
+fn parse_track_impl(block: &[u8], extended: bool, strict: bool) -> Result<DiskTrack, String> {
     if block.len() < TRACK_HEADER_LEN {
         return Err("track block shorter than 256-byte header".into());
     }
@@ -200,11 +206,18 @@ fn parse_track(block: &[u8], extended: bool) -> Result<DiskTrack, String> {
     // Default sector size from the track header (used for standard DSK
     // where every sector in the track has the same size).
     let track_n = block[0x14];
-    let track_default_size = 128usize << track_n.min(6) as usize;
+    let track_default_size = if strict && !extended {
+        128usize
+            .checked_shl(u32::from(track_n))
+            .filter(|&size| size != 0)
+            .ok_or("standard DSK sector-size code overflows")?
+    } else {
+        128usize << track_n.min(6) as usize
+    };
 
     // Sector Information List starts at 0x18, 8 bytes per sector.
     let sil_end = 0x18 + sector_count * SECTOR_INFO_LEN;
-    if sil_end > block.len() {
+    if sil_end > block.len() || (strict && sil_end > TRACK_HEADER_LEN) {
         return Err("sector info list runs past track block".into());
     }
 
@@ -249,7 +262,7 @@ fn parse_track(block: &[u8], extended: bool) -> Result<DiskTrack, String> {
             // but a read-data attempt either fails or returns
             // garbage. We model that with an empty data Vec.
             edsk_len
-        } else if edsk_len != 0 {
+        } else if !strict && edsk_len != 0 {
             edsk_len
         } else {
             track_default_size

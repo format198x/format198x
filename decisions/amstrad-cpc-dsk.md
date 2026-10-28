@@ -44,3 +44,18 @@ creator or container padding. The encoder documents deterministic defaults
 rather than changing the model or claiming byte-preserving dump rewriting.
 Stored weak-sector copies remain bytes; emulator interpretation is separate.
 Runtime export and fresh-machine reopening remain Emu-owned acceptance gates.
+
+## Opt-in checked container metadata
+
+Accepted 2026-10-28 for Emu198x #277. The user approved an additive strict API
+and publishing it before Einstein consumption. `parse_container` retains
+physical TIB metadata and container slot order independently of sector CHRN,
+with strict table/header/payload bounds. Standard size codes do not clamp;
+EDSK stored zero lengths and status records remain data.
+
+The existing `parse` path and sector-model types keep their compatibility
+behaviour. The new view recognizes zeroed/unformatted slots without erasing
+present zero-sector headers. It does not impose WD1770 geometry, normalize
+address marks or discard status flags: representability remains the consumer's
+responsibility. This avoids regressing Einstein's hardened loader while keeping
+other decoder consumers unchanged. No dependency or controller state is added.
