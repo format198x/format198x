@@ -15,6 +15,7 @@ not just the 198x projects.
 | [`format198x-acorn-atom-atm`](crates/format198x-acorn-atom-atm) | Acorn Atom `.atm` program images — read, write | Initial release |
 | [`format198x-acorn-uef`](crates/format198x-acorn-uef) | Acorn UEF tape images — lossless chunk container, tape chunks, gzipped or not, read, write | Initial release |
 | [`format198x-amstrad-cpc-dsk`](crates/format198x-amstrad-cpc-dsk) | CPCEMU DSK/EDSK reading and standard Spectrum +3DOS disk writing | Initial release |
+| [`format198x-apple-ii-woz`](crates/format198x-apple-ii-woz) | Apple II WOZ 2 bitstream disks — lossless read, edit and write | Initial release |
 | [`format198x-atari-8bit-atr`](crates/format198x-atari-8bit-atr) | Atari 8-bit ATR disk images — all boot-sector layouts, sector access, read, write | Initial release |
 | [`format198x-atari-8bit-xex`](crates/format198x-atari-8bit-xex) | Atari 8-bit XEX segmented executables — ordered, zero-copy parsing | [![crates.io](https://img.shields.io/crates/v/format198x-atari-8bit-xex.svg)](https://crates.io/crates/format198x-atari-8bit-xex) |
 | [`format198x-commodore-amiga-adf`](crates/format198x-commodore-amiga-adf) | Amiga ADF floppy images (OFS/FFS) — read, write, verify | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-adf.svg)](https://crates.io/crates/format198x-commodore-amiga-adf) |
