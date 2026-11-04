@@ -241,6 +241,13 @@ impl Woz {
         Self::parse(&bytes)
     }
 
+    /// Set the tab on this in-memory image, for an explicitly created work
+    /// copy. The caller's original bytes and all filesystem paths are untouched.
+    pub fn set_write_protected(&mut self, protected: bool) {
+        self.info.write_protected = protected;
+        self.bytes[22] = u8::from(protected);
+    }
+
     pub fn info(&self) -> Info {
         self.info
     }
@@ -311,6 +318,21 @@ mod tests {
             }],
         )
         .expect("valid image")
+    }
+    #[test]
+    fn writable_copy_changes_the_copy_and_recomputes_its_checksum() {
+        let source = image();
+        let before = source.to_bytes();
+        let mut work = source.clone();
+        work.set_write_protected(false);
+        assert!(
+            !Woz::parse(&work.to_bytes())
+                .expect("copy checksum")
+                .info()
+                .write_protected
+        );
+        assert!(source.info().write_protected);
+        assert_eq!(source.to_bytes(), before);
     }
     #[test]
     fn canonical_crc_and_layout_match_specified_offsets() {
