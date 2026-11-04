@@ -1,0 +1,13 @@
+[package]
+name = "format198x-apple-ii-woz"
+version = "0.1.0"
+description = "Dependency-free WOZ 2 Apple II bitstream disk images"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["apple-ii", "woz", "disk", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
