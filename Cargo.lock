@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "format198x-commodore-c128-d71"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "format198x-commodore-c64-art-studio"
@@ -82,7 +82,7 @@ version = "0.1.0"
 
 [[package]]
 name = "format198x-commodore-c64-d81"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "format198x-commodore-c64-g64"
