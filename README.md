@@ -49,6 +49,7 @@ not just the 198x projects.
 | [`format198x-nintendo-game-boy-cartridge`](crates/format198x-nintendo-game-boy-cartridge) | Game Boy and Game Boy Color cartridge headers — every documented type, header and global checksums | Initial release |
 | [`format198x-nintendo-nes-ines`](crates/format198x-nintendo-nes-ines) | NES iNES and NES 2.0 ROM files — header, trainer, PRG and CHR ROM, read, write | Initial release |
 | [`format198x-nintendo-snes-sfc`](crates/format198x-nintendo-snes-sfc) | Super NES and Super Famicom cartridge images — internal header, checksum, read, write | Initial release |
+| [`format198x-snk-neo-geo-romset`](crates/format198x-snk-neo-geo-romset) | Neo Geo named cartridge ROM files — region decoding and canonical writing | Initial release |
 | [`format198x-sinclair-zx-spectrum-bas`](crates/format198x-sinclair-zx-spectrum-bas) | ZX Spectrum BASIC listings — tokenise to stored bytes, list as the 48K ROM does | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-bas.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-bas) |
 | [`format198x-sinclair-zx-spectrum-mdr`](crates/format198x-sinclair-zx-spectrum-mdr) | ZX Spectrum `.mdr` Microdrive cartridges — sectors, checksums, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-rzx`](crates/format198x-sinclair-zx-spectrum-rzx) | ZX Spectrum RZX input recordings — blocks in order, frame streams, zlib payloads, read, write | Initial release |
