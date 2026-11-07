@@ -85,6 +85,14 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
   place of a `had_copier_header` flag.
 - Game Boy: every documented cartridge type decodes. Emu198x refused
   MMM01, MBC6, MBC7, Pocket Camera, TAMA5, HuC3 and HuC1 as unsupported.
+- Atari ST `.st`: the boot sector decides the geometry only when it
+  describes exactly the image's sectors; otherwise the size does, as in
+  Hatari. Emu198x trusted any boot sector that fitted and dropped the rest,
+  which cut real 81- and 82-track images short. Bytes past the geometry are
+  kept and written back.
+- Atari ST `.msa`: `write` refuses geometry and data the header cannot
+  describe, where Emu198x panicked, dropped a partial track or wrote a wrong
+  track count.
 
 ## Drift triggers
 
