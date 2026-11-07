@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-tap-v0.1.1...format198x-sinclair-zx-spectrum-tap-v0.2.0) - 2026-11-07
+
+### Fixed
+
+- *(tap)* [**breaking**] keep each block's stored parity, so a damaged tape stays damaged
+
 ## [0.1.1](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-tap-v0.1.0...format198x-sinclair-zx-spectrum-tap-v0.1.1) - 2026-08-26
 
 ### Other
