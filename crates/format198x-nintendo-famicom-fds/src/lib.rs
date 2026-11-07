@@ -75,7 +75,7 @@ pub enum FdsError {
     },
     /// The header declares no sides.
     NoSides,
-    /// A side given to [`write`] is longer than a side holds.
+    /// A side given to [`write()`] is longer than a side holds.
     SideTooLong {
         /// Which side, from 0.
         index: usize,
