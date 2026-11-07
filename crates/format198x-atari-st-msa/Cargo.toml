@@ -1,0 +1,13 @@
+[package]
+name = "format198x-atari-st-msa"
+description = "Atari ST .msa (Magic Shadow Archiver) floppy images — dependency-free expansion to raw sectors and compression back."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["atari", "atari-st", "msa", "floppy", "retro"]
+categories = ["encoding", "compression", "parser-implementations"]
+
+[lints]
+workspace = true
