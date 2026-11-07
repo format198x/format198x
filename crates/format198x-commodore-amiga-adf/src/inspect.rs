@@ -30,6 +30,10 @@ pub struct VolumeProvenance {
 pub struct ComponentProvenance {
     /// Component spelling supplied by the caller.
     pub name: String,
+    /// The name as stored in the matching header. AmigaDOS matches names
+    /// without regard to case, so this can differ from [`name`](Self::name)
+    /// in case alone.
+    pub stored_name: String,
     /// Directory whose hash table was searched.
     pub parent_block: u32,
     /// Hash-table bucket selected for the name.
@@ -136,7 +140,7 @@ impl Disk<'_> {
             let mut candidate = read_u32(parent_bytes, 24 + 4 * hash_bucket);
             let mut collision_hops = Vec::new();
             let mut seen = BTreeSet::new();
-            let header_block = loop {
+            let (header_block, stored_name) = loop {
                 if candidate == 0 {
                     return Err(Error::NotFound {
                         path: path.to_owned(),
@@ -149,8 +153,9 @@ impl Disk<'_> {
                 }
                 collision_hops.push(candidate);
                 let header = self.cblock(candidate)?;
-                if name_eq(&header_name(self.bytes(), candidate), name) {
-                    break candidate;
+                let stored = header_name(self.bytes(), candidate);
+                if name_eq(&stored, name) {
+                    break (candidate, stored);
                 }
                 candidate = read_u32(header, BSIZE - 16);
             };
@@ -159,6 +164,7 @@ impl Disk<'_> {
             let secondary_type = read_u32(header, BSIZE - 4);
             components.push(ComponentProvenance {
                 name: (*name).to_owned(),
+                stored_name,
                 parent_block: parent,
                 hash_bucket,
                 collision_hops,

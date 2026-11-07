@@ -409,6 +409,20 @@ fn paths_use_amigados_case_insensitive_matching_and_preserve_spelling() {
     assert_eq!(disk.list("s").unwrap()[0].name, "Startup-Sequence");
     let evidence = disk.inspect("docs/MIXEDCASE").unwrap();
     assert_eq!(evidence.path, "docs/MIXEDCASE");
+    let asked: Vec<&str> = evidence
+        .components
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    let stored: Vec<&str> = evidence
+        .components
+        .iter()
+        .map(|c| c.stored_name.as_str())
+        .collect();
+    assert_eq!(asked, ["docs", "MIXEDCASE"]);
+    assert_eq!(stored, ["Docs", "MixedCase"]);
+    // The stored spelling agrees with what a directory listing reports.
+    assert_eq!(disk.list("docs").unwrap()[0].name, stored[1]);
 }
 
 #[test]
