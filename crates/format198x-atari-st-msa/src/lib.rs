@@ -65,6 +65,14 @@ pub enum MsaError {
         track: usize,
         side: usize,
     },
+    /// [`write`] was given data that is not a whole number of tracks for
+    /// its geometry, or more tracks than the header can count.
+    DataLength {
+        /// The data's length.
+        len: usize,
+        /// Bytes in one track across all sides.
+        cylinder: usize,
+    },
 }
 
 impl fmt::Display for MsaError {
@@ -87,6 +95,10 @@ impl fmt::Display for MsaError {
                     "MSA track {track} side {side} does not expand to a whole track"
                 )
             }
+            Self::DataLength { len, cylinder } => write!(
+                f,
+                "{len} bytes is not 1 to 256 whole tracks of {cylinder} bytes for an MSA archive"
+            ),
         }
     }
 }
@@ -174,22 +186,34 @@ fn expand(block: &[u8], out: &mut [u8]) -> Option<()> {
 
 /// Compress a raw `.st`-order image into an MSA archive, the inverse of
 /// [`parse`]. Runs of five or more equal bytes, and every `$E5`, are encoded;
-/// a track that would not shrink is stored raw.
-#[must_use]
-pub fn write(sectors_per_track: usize, sides: usize, data: &[u8]) -> Vec<u8> {
-    let track_size = sectors_per_track * SECTOR_SIZE;
-    let tracks = data.len() / (track_size * sides);
-    let mut out = Vec::new();
-    for word in [
-        0x0E0F,
-        sectors_per_track,
-        sides - 1,
-        0,
-        tracks.saturating_sub(1),
-    ] {
-        out.extend((word as u16).to_be_bytes());
+/// a track that would not shrink is stored raw. The archive always starts at
+/// track 0, so an archive whose first track was later writes back with the
+/// zeroed tracks [`parse`] filled in.
+///
+/// # Errors
+///
+/// [`MsaError::BadGeometry`] for other than one or two sides or 1 to 64
+/// sectors per track, and [`MsaError::DataLength`] if `data` is not 1 to
+/// 256 whole tracks. Nothing is cut to fit.
+pub fn write(sectors_per_track: usize, sides: usize, data: &[u8]) -> Result<Vec<u8>, MsaError> {
+    if !(1..=2).contains(&sides) || !(1..=64).contains(&sectors_per_track) {
+        return Err(MsaError::BadGeometry);
     }
-    for chunk in data.chunks(track_size).take(tracks * sides) {
+    let track_size = sectors_per_track * SECTOR_SIZE;
+    let cylinder = track_size * sides;
+    let tracks = data.len() / cylinder;
+    if !data.len().is_multiple_of(cylinder) || !(1..=256).contains(&tracks) {
+        return Err(MsaError::DataLength {
+            len: data.len(),
+            cylinder,
+        });
+    }
+    let word = |value: usize| u16::try_from(value).unwrap_or(u16::MAX).to_be_bytes();
+    let mut out = Vec::new();
+    for value in [0x0E0F, sectors_per_track, sides - 1, 0, tracks - 1] {
+        out.extend(word(value));
+    }
+    for chunk in data.chunks(track_size) {
         let mut packed = Vec::new();
         let mut i = 0;
         while i < chunk.len() {
@@ -197,7 +221,7 @@ pub fn write(sectors_per_track: usize, sides: usize, data: &[u8]) -> Vec<u8> {
             let run = chunk[i..].iter().take_while(|&&b| b == value).count();
             if run >= 5 || value == RUN {
                 packed.extend([RUN, value]);
-                packed.extend((run as u16).to_be_bytes());
+                packed.extend(word(run));
                 i += run;
             } else {
                 packed.push(value);
@@ -209,11 +233,16 @@ pub fn write(sectors_per_track: usize, sides: usize, data: &[u8]) -> Vec<u8> {
         } else {
             chunk.to_vec()
         };
-        out.extend((body.len() as u16).to_be_bytes());
+        out.extend(word(body.len()));
         out.extend(body);
     }
-    out
+    Ok(out)
 }
+
+/// The README's examples, run as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 
 #[cfg(test)]
 mod tests {
@@ -232,7 +261,7 @@ mod tests {
     #[test]
     fn write_then_parse_round_trips() {
         let raw = disk(2, 9, 80);
-        let msa = write(9, 2, &raw);
+        let msa = write(9, 2, &raw).expect("whole tracks");
         assert!(msa.len() < raw.len(), "the runs compress");
         let image = parse(&msa).expect("parses");
         assert_eq!(image.sides, 2);
@@ -246,7 +275,7 @@ mod tests {
         let raw: Vec<u8> = (0..9 * SECTOR_SIZE)
             .map(|i| (i * 7 % 255) as u8 + 1)
             .collect();
-        let msa = write(9, 1, &raw);
+        let msa = write(9, 1, &raw).expect("whole tracks");
         assert_eq!(be16(&msa, 10), Some(9 * SECTOR_SIZE));
         assert_eq!(parse(&msa).expect("parses").data, raw);
     }
@@ -277,7 +306,28 @@ mod tests {
         let mut short = header.to_vec();
         short.extend([0, 4, RUN, 0, 0, 10]);
         assert_eq!(parse(&short), Err(MsaError::BadTrack { track: 0, side: 0 }));
+        assert_eq!(write(9, 0, &[]), Err(MsaError::BadGeometry));
+        assert_eq!(write(0, 1, &[]), Err(MsaError::BadGeometry));
+        assert_eq!(
+            write(9, 1, &[0; 100]),
+            Err(MsaError::DataLength {
+                len: 100,
+                cylinder: 9 * SECTOR_SIZE
+            })
+        );
+        assert!(matches!(
+            write(9, 1, &[]),
+            Err(MsaError::DataLength { len: 0, .. })
+        ));
+        assert!(matches!(
+            write(1, 1, &vec![0; 257 * SECTOR_SIZE]),
+            Err(MsaError::DataLength { .. })
+        ));
         for error in [
+            MsaError::DataLength {
+                len: 1,
+                cylinder: 2,
+            },
             MsaError::TooShort,
             MsaError::BadMagic(1),
             MsaError::BadGeometry,
