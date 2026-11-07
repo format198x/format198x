@@ -137,6 +137,10 @@ name = "format198x-nintendo-nes-ines"
 version = "0.1.0"
 
 [[package]]
+name = "format198x-nintendo-snes-sfc"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-sinclair-zx-spectrum-bas"
 version = "0.1.3"
 
