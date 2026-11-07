@@ -42,6 +42,7 @@ not just the 198x projects.
 | [`format198x-dragon-data-dragon-pak`](crates/format198x-dragon-data-dragon-pak) | Dragon cartridge ROMs and PC-Dragon PAK snapshots — read, write | Initial release |
 | [`format198x-jupiter-ace-ace`](crates/format198x-jupiter-ace-ace) | Jupiter Ace `.ace` snapshots — RLE decode and encode | Initial release |
 | [`format198x-memotech-mtx-mtx`](crates/format198x-memotech-mtx-mtx) | Memotech MTX `.mtx` tape images and `.RUN` programs — read, write | Initial release |
+| [`format198x-nintendo-famicom-fds`](crates/format198x-nintendo-famicom-fds) | Famicom Disk System `.fds` images — sides, blocks, read, write | Initial release |
 | [`format198x-nintendo-nes-ines`](crates/format198x-nintendo-nes-ines) | NES iNES and NES 2.0 ROM files — header, trainer, PRG and CHR ROM, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-bas`](crates/format198x-sinclair-zx-spectrum-bas) | ZX Spectrum BASIC listings — tokenise to stored bytes, list as the 48K ROM does | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-bas.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-bas) |
 | [`format198x-sinclair-zx-spectrum-rzx`](crates/format198x-sinclair-zx-spectrum-rzx) | ZX Spectrum RZX input recordings — blocks in order, frame streams, zlib payloads, read, write | Initial release |
