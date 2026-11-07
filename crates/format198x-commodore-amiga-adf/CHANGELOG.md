@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.4...format198x-commodore-amiga-adf-v0.3.5) - 2026-11-07
+
+### Added
+
+- *(adf)* report each path component's stored spelling
+
 ## [0.3.4](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.3...format198x-commodore-amiga-adf-v0.3.4) - 2026-10-22
 
 ### Fixed
