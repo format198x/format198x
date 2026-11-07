@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(adf)* report each path component's stored spelling
+- `ComponentProvenance::stored_name`: the name as written on the disk for each
+  component `Disk::inspect` resolves. AmigaDOS matches names regardless of
+  case, so this can differ from the spelling the caller asked for.
 
 ## [0.3.4](https://github.com/format198x/format198x/compare/format198x-commodore-amiga-adf-v0.3.3...format198x-commodore-amiga-adf-v0.3.4) - 2026-10-22
 
