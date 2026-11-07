@@ -16,7 +16,8 @@ assert_eq!(extract_first_prg(&disk)?.data, [1, 8, 0]);
 closed PRG entries in the supplied order. It includes every payload byte
 (including the load address), recomputes block counts, and reserves tracks
 18 and 53 from file data. Names use D64's restricted ASCII contract (up to
-16 letters, digits or spaces); IDs are two ASCII letters or digits.
+16 letters, digits or spaces); IDs are two ASCII letters or digits. The existing reader trims trailing
+spaces from names.
 It does not edit existing images or create REL files.
 
 Layout authority: Commodore **1571 Users Guide**, DOS diskette format

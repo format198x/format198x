@@ -260,13 +260,13 @@ const TRACK_SECTOR_COUNTS: [u8; 80] = [40; 80];
 /// One failure while mastering a `D81` image.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum D81WriteError {
-    /// A disk or file name is too long or holds a character that would not
-    /// read back the same (only `A-Z`, `a-z`, `0-9` and space do).
+    /// A disk or file name exceeds 16 bytes or contains a character outside
+    /// `A-Z`, `a-z`, `0-9` and space.
     InvalidName {
         /// The rejected name.
         name: String,
     },
-    /// The disk id is not exactly two such characters.
+    /// The disk id is not exactly two ASCII letters or digits.
     InvalidId,
     /// The files need more blocks than the disk has free.
     DiskFull,
@@ -382,8 +382,8 @@ impl Allocator {
 ///
 /// # Errors
 ///
-/// Returns an error when a name or the id cannot be written so that it reads
-/// back the same, the files do not fit, or there are more than 296 of them.
+/// Returns an error for names outside the documented ASCII contract, an invalid
+/// id, files that do not fit, or more than 296 of them.
 pub fn master(
     disk_name: &str,
     disk_id: &str,
