@@ -16,7 +16,8 @@ assert_eq!(extract_first_prg(&disk)?.data, [1, 8, 0]);
 entries in the supplied order. It includes every payload byte (including
 the load address), recomputes block counts, and reserves track 40 from
 file data. Names use D64's restricted ASCII contract (up to 16 letters,
-digits or spaces); IDs are two ASCII letters or digits. It creates only
+digits or spaces); IDs are two ASCII letters or digits. The existing reader trims trailing
+spaces from names. It creates only
 the root directory; it does not edit existing images, create REL files or
 create partitions.
 

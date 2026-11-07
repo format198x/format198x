@@ -1,11 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-### Added
-
-- Master fresh D81 disks from PRG payloads with both BAM sectors, a root directory and typed capacity errors.
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -14,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- Master fresh D81 disks from PRG payloads with both BAM sectors, a root directory and typed capacity errors.
 
 - Dependency-free crate graduated from Emu198x's `format-commodore-c64-d81` at
   emu198x/emu198x@63fac19e77, with no `serde` or `thiserror`.
