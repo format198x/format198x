@@ -129,6 +129,10 @@ name = "format198x-memotech-mtx-mtx"
 version = "0.1.0"
 
 [[package]]
+name = "format198x-nintendo-famicom-fds"
+version = "0.1.0"
+
+[[package]]
 name = "format198x-nintendo-nes-ines"
 version = "0.1.0"
 
