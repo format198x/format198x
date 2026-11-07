@@ -18,7 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(tap)* [**breaking**] keep each block's stored parity, so a damaged tape stays damaged
+- Preserve each decoded block's stored parity byte when encoding it again.
+  A damaged tape now stays damaged instead of silently acquiring a valid
+  checksum. `parity_ok()` checks the stored byte; `tape_bytes()` supplies the
+  flag, payload and parity a tape loader should receive.
+
+### Breaking changes
+
+- `TapBlock` gains `stored_parity: Option<u8>`. Add `stored_parity: None` to
+  existing struct literals, or use `TapBlock::new` / `TapBlock::data` to build
+  a block with computed parity. Tape playback should use `tape_bytes()` rather
+  than recomputing the checksum of a decoded block.
 
 ## [0.1.1](https://github.com/format198x/format198x/compare/format198x-sinclair-zx-spectrum-tap-v0.1.0...format198x-sinclair-zx-spectrum-tap-v0.1.1) - 2026-08-26
 
