@@ -65,7 +65,7 @@ pub enum MsaError {
         track: usize,
         side: usize,
     },
-    /// [`write`] was given data that is not a whole number of tracks for
+    /// [`write()`] was given data that is not a whole number of tracks for
     /// its geometry, or more tracks than the header can count.
     DataLength {
         /// The data's length.
