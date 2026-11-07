@@ -18,6 +18,8 @@ not just the 198x projects.
 | [`format198x-apple-ii-woz`](crates/format198x-apple-ii-woz) | Apple II WOZ 2 bitstream disks — lossless read, edit and write | Initial release |
 | [`format198x-atari-8bit-atr`](crates/format198x-atari-8bit-atr) | Atari 8-bit ATR disk images — all boot-sector layouts, sector access, read, write | Initial release |
 | [`format198x-atari-8bit-xex`](crates/format198x-atari-8bit-xex) | Atari 8-bit XEX segmented executables — ordered, zero-copy parsing | [![crates.io](https://img.shields.io/crates/v/format198x-atari-8bit-xex.svg)](https://crates.io/crates/format198x-atari-8bit-xex) |
+| [`format198x-atari-st-msa`](crates/format198x-atari-st-msa) | Atari ST `.msa` floppy archives — expand, compress | Initial release |
+| [`format198x-atari-st-st`](crates/format198x-atari-st-st) | Atari ST `.st` floppy images — geometry, read, write | Initial release |
 | [`format198x-commodore-amiga-adf`](crates/format198x-commodore-amiga-adf) | Amiga ADF floppy images (OFS/FFS) — read, write, verify | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-adf.svg)](https://crates.io/crates/format198x-commodore-amiga-adf) |
 | [`format198x-commodore-amiga-ilbm`](crates/format198x-commodore-amiga-ilbm) | Amiga IFF/ILBM images — interleaved bitplanes, ByteRun1, CAMG flags | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-ilbm.svg)](https://crates.io/crates/format198x-commodore-amiga-ilbm) |
 | [`format198x-commodore-amiga-mod`](crates/format198x-commodore-amiga-mod) | ProTracker MOD modules — 31 samples, patterns, order table | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-amiga-mod.svg)](https://crates.io/crates/format198x-commodore-amiga-mod) |
