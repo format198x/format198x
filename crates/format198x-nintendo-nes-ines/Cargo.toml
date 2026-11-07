@@ -1,0 +1,13 @@
+[package]
+name = "format198x-nintendo-nes-ines"
+description = "NES iNES and NES 2.0 ROM files — dependency-free decoding and encoding of the header, trainer and PRG and CHR ROM."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["nes", "ines", "famicom", "rom", "retro"]
+categories = ["encoding", "parser-implementations"]
+
+[lints]
+workspace = true
