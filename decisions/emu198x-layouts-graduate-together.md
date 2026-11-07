@@ -60,6 +60,12 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
    it, but "Jupiter Ace" is how the machine and its media are known, and
    the umbrella's naming record does not ask for more.
 
+8. **Neo Geo named ROM files are a format.** Steve confirmed this on
+   2026-11-07. The crate takes and returns `(name, bytes)` pairs; ZIP stays
+   in Emu198x's adapter. Writing preserves decoded regions, not original
+   filenames, ignored files or chip boundaries. Two P files represent a
+   2 MiB region so the single-P1 header heuristic cannot reinterpret it.
+
 ## Known differences from the Emu198x crates
 
 - ATR: sectors 2 and 3 of a *padded* double-density image now read their own
@@ -93,6 +99,9 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
 - Atari ST `.msa`: `write` refuses geometry and data the header cannot
   describe, where Emu198x panicked, dropped a partial track or wrote a wrong
   track count.
+
+- Neo Geo: C-ROM pairs must start at an odd chip number; Emu198x also
+  accepted C2/C3 as a pair. ZIP parsing stays outside the format crate.
 
 ## Drift triggers
 
