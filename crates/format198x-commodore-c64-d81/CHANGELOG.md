@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/format198x/format198x/compare/format198x-commodore-c64-d81-v0.1.0...format198x-commodore-c64-d81-v0.1.1) - 2026-11-07
+
+### Added
+
+- *(commodore-c64-d81)* master fresh disks with PRG files
+
 ### Added
 
 - Master fresh D81 disks from PRG payloads with both BAM sectors, a root directory and typed capacity errors.
