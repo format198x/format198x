@@ -49,25 +49,40 @@ pub const NAME_LEN: usize = 10;
 /// One block of a tape, as TAP stores it: the flag and the payload between it
 /// and the parity byte.
 ///
-/// The parity is not held here. It is a function of the other two — the XOR of
-/// the flag and every payload byte — so [`encode`] computes it and [`decode`]
-/// checks nothing else needs it.
+/// The correct parity is a function of the other two, the XOR of the flag and
+/// every payload byte, so a block you build leaves [`stored_parity`] as `None`
+/// and [`encode`] writes the correct one. A block read by [`decode`] keeps the
+/// parity byte the tape actually carries, right or wrong. A real loader
+/// rejects a block whose parity does not match ("R Tape loading error"), so
+/// dropping a wrong one would turn a damaged tape into a good one.
+///
+/// [`stored_parity`]: TapBlock::stored_parity
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TapBlock {
     /// `$00` for a header, `$FF` for data.
     pub flag: u8,
     /// The bytes between the flag and the parity byte.
     pub data: Vec<u8>,
+    /// The parity byte as stored on the tape, or `None` to write the correct
+    /// one. [`decode`] fills it for every block that has one.
+    pub stored_parity: Option<u8>,
 }
 
 impl TapBlock {
+    /// A block with this flag and payload, and the correct parity.
+    #[must_use]
+    pub fn new(flag: u8, data: Vec<u8>) -> Self {
+        Self {
+            flag,
+            data,
+            stored_parity: None,
+        }
+    }
+
     /// A data block: flag `$FF` and these bytes.
     #[must_use]
     pub fn data(bytes: Vec<u8>) -> Self {
-        Self {
-            flag: DATA_FLAG,
-            data: bytes,
-        }
+        Self::new(DATA_FLAG, bytes)
     }
 
     /// Whether this is a header block.
@@ -79,11 +94,37 @@ impl TapBlock {
         self.flag < 0x80
     }
 
-    /// The parity byte this block would carry: the XOR of the flag and every
+    /// The correct parity for this block: the XOR of the flag and every
     /// payload byte.
     #[must_use]
     pub fn parity(&self) -> u8 {
         self.data.iter().fold(self.flag, |p, b| p ^ b)
+    }
+
+    /// The parity byte the block carries on tape: the stored one if there is
+    /// one, otherwise the correct one.
+    #[must_use]
+    pub fn written_parity(&self) -> u8 {
+        self.stored_parity.unwrap_or_else(|| self.parity())
+    }
+
+    /// Whether the parity on tape matches the flag and payload, which is the
+    /// check the ROM loader makes.
+    #[must_use]
+    pub fn parity_ok(&self) -> bool {
+        self.written_parity() == self.parity()
+    }
+
+    /// The block's bytes as they are on tape: the flag, the payload and the
+    /// parity byte it carries. This is the stream a loader reads, so it is what
+    /// an emulator should play.
+    #[must_use]
+    pub fn tape_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.data.len() + 2);
+        bytes.push(self.flag);
+        bytes.extend_from_slice(&self.data);
+        bytes.push(self.written_parity());
+        bytes
     }
 }
 
@@ -162,10 +203,7 @@ impl Header {
         data.extend_from_slice(&self.length.to_le_bytes());
         data.extend_from_slice(&self.param1.to_le_bytes());
         data.extend_from_slice(&self.param2.to_le_bytes());
-        TapBlock {
-            flag: HEADER_FLAG,
-            data,
-        }
+        TapBlock::new(HEADER_FLAG, data)
     }
 
     /// Read a header out of a header block's payload.
@@ -208,9 +246,7 @@ pub fn encode(blocks: &[TapBlock]) -> Vec<u8> {
         let len = block.data.len().saturating_add(2);
         #[allow(clippy::cast_possible_truncation)]
         out.extend_from_slice(&(len as u16).to_le_bytes());
-        out.push(block.flag);
-        out.extend_from_slice(&block.data);
-        out.push(block.parity());
+        out.extend_from_slice(&block.tape_bytes());
     }
     out
 }
@@ -243,16 +279,18 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<TapBlock>, DecodeError> {
         }
         let block = &bytes[pos..pos + len];
         pos += len;
-        // The last byte is the parity; anything between it and the flag is the
-        // payload. A one-byte block is a flag alone, which leaves neither.
-        let data = if len >= 2 {
-            block[1..len - 1].to_vec()
+        // The last byte is the parity, kept as stored; anything between it
+        // and the flag is the payload. A one-byte block is a flag alone, which
+        // leaves neither.
+        let (data, stored_parity) = if len >= 2 {
+            (block[1..len - 1].to_vec(), Some(block[len - 1]))
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         blocks.push(TapBlock {
             flag: block[0],
             data,
+            stored_parity,
         });
     }
     if pos < bytes.len() {

@@ -55,7 +55,68 @@ fn encode_then_decode_round_trips() {
         Header::new(HeaderKind::Code, "toolongtotruncate", 4, 0x8000, 0x8000).block(),
         TapBlock::data(vec![0xDE, 0xAD, 0xBE, 0xEF]),
     ];
-    assert_eq!(decode(&encode(&blocks)).expect("round trip"), blocks);
+    let decoded = decode(&encode(&blocks)).expect("round trip");
+    assert_eq!(decoded.len(), blocks.len());
+    for (read, built) in decoded.iter().zip(&blocks) {
+        assert_eq!((read.flag, &read.data), (built.flag, &built.data));
+        // A decoded block carries the parity it was read with; a built one
+        // leaves it to `encode`. Both agree on what is on tape.
+        assert_eq!(read.stored_parity, Some(built.parity()));
+        assert_eq!(read.tape_bytes(), built.tape_bytes());
+        assert!(read.parity_ok());
+    }
+}
+
+/// A real tape decodes and encodes back to the same bytes.
+#[test]
+fn a_real_tape_survives_decode_and_encode() {
+    let blocks = decode(REFERENCE).expect("a real tape decodes");
+    assert!(blocks.iter().all(TapBlock::parity_ok));
+    assert_eq!(encode(&blocks), REFERENCE);
+}
+
+/// A block whose payload no longer matches its parity is what a damaged tape
+/// is. The ROM refuses it with "R Tape loading error", so decoding must not
+/// quietly repair it: the stored parity survives decode and encode, and
+/// `tape_bytes` gives a player the block exactly as damaged.
+#[test]
+fn a_damaged_block_stays_damaged() {
+    let mut damaged = REFERENCE.to_vec();
+    let last_payload_byte = damaged.len() - 2;
+    damaged[last_payload_byte] ^= 0x01;
+
+    let blocks = decode(&damaged).expect("a damaged block still decodes");
+    assert!(blocks[0].parity_ok(), "the header block is untouched");
+    assert!(!blocks[1].parity_ok());
+    assert_eq!(
+        blocks[1].stored_parity,
+        Some(REFERENCE[REFERENCE.len() - 1])
+    );
+    assert_ne!(blocks[1].written_parity(), blocks[1].parity());
+    assert_eq!(encode(&blocks), damaged);
+
+    let on_tape = blocks[1].tape_bytes();
+    assert_eq!(
+        on_tape.as_slice(),
+        &damaged[damaged.len() - on_tape.len()..]
+    );
+}
+
+/// A block built rather than read has no stored parity, so `encode` writes the
+/// correct one, and `stored_parity` set by hand overrides it.
+#[test]
+fn a_built_block_gets_the_correct_parity_unless_told_otherwise() {
+    let mut block = TapBlock::new(DATA_FLAG, vec![1, 2, 3, 4]);
+    assert_eq!(block.stored_parity, None);
+    assert!(block.parity_ok());
+    assert_eq!(encode(&[block.clone()]).last(), Some(&block.parity()));
+
+    block.stored_parity = Some(block.parity() ^ 0xFF);
+    assert!(!block.parity_ok());
+    assert_eq!(
+        encode(&[block.clone()]).last(),
+        Some(&(block.parity() ^ 0xFF))
+    );
 }
 
 /// Ten bytes is what the field holds: a shorter name is space-padded, a longer

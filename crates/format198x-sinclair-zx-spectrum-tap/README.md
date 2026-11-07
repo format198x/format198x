@@ -38,9 +38,12 @@ std::fs::write("demo.tap", tape)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The parity byte is not yours to carry: it is the XOR of a block's flag and
-payload, so `encode` computes it and `decode` needs nothing from you to check
-it.
+You don't supply the parity byte for a block you build: it is the XOR of the
+block's flag and payload, so `encode` writes the correct one. `decode` keeps
+the parity each block actually carries, in `stored_parity`, so a damaged tape
+stays damaged through a decode and encode. `parity_ok()` makes the check the
+ROM loader makes, and `tape_bytes()` gives the block as the loader hears it:
+flag, payload and stored parity.
 
 ## The layout
 
