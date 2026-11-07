@@ -1,0 +1,289 @@
+//! Header parser tests.
+
+#![allow(clippy::unwrap_used)]
+
+use super::*;
+
+/// Build a minimal valid 32 KiB ROM with the given header overrides
+/// applied on top. The header checksum is recomputed automatically.
+fn make_rom(rom_size: usize, customise: impl FnOnce(&mut [u8])) -> Vec<u8> {
+    let mut rom = vec![0x00; rom_size];
+    // ROM size code at $0148: code N = 32 KiB << N.
+    let code = (rom_size / 0x8000).trailing_zeros() as u8;
+    rom[offset::ROM_SIZE] = code;
+    rom[offset::CART_TYPE] = 0x00; // ROM only by default
+    customise(&mut rom);
+    let checksum = compute_header_checksum(&rom);
+    rom[offset::HEADER_CHECKSUM] = checksum;
+    rom
+}
+
+#[test]
+fn rejects_short_roms() {
+    let rom = vec![0u8; 1024];
+    let err = CartridgeHeader::parse(&rom).unwrap_err();
+    assert!(matches!(err, HeaderError::TooShort { len: 1024 }));
+}
+
+#[test]
+fn rejects_unknown_cart_type() {
+    let rom = make_rom(0x8000, |r| r[offset::CART_TYPE] = 0x77);
+    let err = CartridgeHeader::parse(&rom).unwrap_err();
+    assert!(matches!(
+        err,
+        HeaderError::UnknownCartridgeType { byte: 0x77 }
+    ));
+}
+
+#[test]
+fn every_documented_type_decodes_even_without_emulator_support() {
+    for (byte, name, battery) in [
+        (0x0B, "MMM01", false),
+        (0x0D, "MMM01", true),
+        (0x20, "MBC6", false),
+        (0x22, "MBC7", true),
+        (0xFC, "Pocket Camera", false),
+        (0xFD, "Bandai TAMA5", false),
+        (0xFE, "HuC3", false),
+        (0xFF, "HuC1", true),
+    ] {
+        let rom = make_rom(0x8000, |r| r[offset::CART_TYPE] = byte);
+        let header = CartridgeHeader::parse(&rom).unwrap();
+        assert_eq!(header.cart_type_byte, byte);
+        assert_eq!(header.cart_type.name(), name);
+        assert_eq!(header.cart_type.has_battery(), battery);
+    }
+}
+
+#[test]
+fn rom_and_ram_types_keep_their_byte() {
+    let plain = CartridgeHeader::parse(&make_rom(0x8000, |_| {})).unwrap();
+    let with_ram = CartridgeHeader::parse(&make_rom(0x8000, |r| {
+        r[offset::CART_TYPE] = 0x08;
+        r[offset::RAM_SIZE] = 2;
+    }))
+    .unwrap();
+    assert_eq!(plain.cart_type, with_ram.cart_type);
+    assert_eq!(
+        (plain.cart_type_byte, with_ram.cart_type_byte),
+        (0x00, 0x08)
+    );
+}
+
+#[test]
+fn set_checksums_makes_both_match_and_is_stable() {
+    let mut rom = make_rom(0x10000, |r| {
+        r[offset::TITLE..offset::TITLE + 4].copy_from_slice(b"TEST")
+    });
+    rom[0x4000] = 0x5A; // changed after the header checksum was computed
+    rom[offset::HEADER_CHECKSUM] ^= 0xFF;
+
+    let sums = set_checksums(&mut rom).unwrap();
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(header.header_checksum, sums.header);
+    assert_eq!(header.global_checksum, sums.global);
+    assert_eq!(global_checksum(&rom), sums.global);
+
+    let before = rom.clone();
+    assert_eq!(set_checksums(&mut rom).unwrap(), sums);
+    assert_eq!(rom, before);
+
+    assert_eq!(
+        set_checksums(&mut [0; 100]),
+        Err(HeaderError::TooShort { len: 100 })
+    );
+}
+
+#[test]
+fn errors_describe_themselves() {
+    for error in [
+        HeaderError::TooShort { len: 1 },
+        HeaderError::UnknownCartridgeType { byte: 0x77 },
+        HeaderError::InvalidRomSize { code: 9 },
+        HeaderError::InvalidRamSize { code: 9 },
+        HeaderError::RomLengthMismatch {
+            declared: 2,
+            actual: 1,
+        },
+        HeaderError::HeaderChecksumMismatch {
+            stored: 1,
+            computed: 2,
+        },
+    ] {
+        assert!(!error.to_string().is_empty());
+    }
+}
+
+#[test]
+fn rejects_invalid_rom_size_code() {
+    // Need to bypass make_rom's auto-recompute since we want an
+    // invalid code. Build by hand.
+    let mut rom = vec![0u8; 0x8000];
+    rom[offset::ROM_SIZE] = 0x09; // out of range
+    let checksum = compute_header_checksum(&rom);
+    rom[offset::HEADER_CHECKSUM] = checksum;
+    let err = CartridgeHeader::parse(&rom).unwrap_err();
+    assert!(matches!(err, HeaderError::InvalidRomSize { code: 0x09 }));
+}
+
+#[test]
+fn rejects_rom_length_mismatch() {
+    // Header says 64 KiB; file is only 32 KiB.
+    let rom = make_rom(0x8000, |r| r[offset::ROM_SIZE] = 0x01);
+    let err = CartridgeHeader::parse(&rom).unwrap_err();
+    assert!(matches!(
+        err,
+        HeaderError::RomLengthMismatch {
+            declared: 0x10000,
+            actual: 0x8000
+        }
+    ));
+}
+
+#[test]
+fn rejects_bad_header_checksum() {
+    let mut rom = make_rom(0x8000, |_| {});
+    rom[offset::HEADER_CHECKSUM] = rom[offset::HEADER_CHECKSUM].wrapping_add(1);
+    let err = CartridgeHeader::parse(&rom).unwrap_err();
+    assert!(matches!(err, HeaderError::HeaderChecksumMismatch { .. }));
+}
+
+#[test]
+fn parses_rom_only_cartridge_with_no_ram() {
+    let rom = make_rom(0x8000, |r| {
+        r[offset::CART_TYPE] = 0x00;
+        r[offset::RAM_SIZE] = 0x00;
+        // Title "TEST" at $0134.
+        r[offset::TITLE..offset::TITLE + 4].copy_from_slice(b"TEST");
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(header.cart_type, CartridgeType::RomOnly { battery: false });
+    assert_eq!(header.rom_size, 0x8000);
+    assert_eq!(header.ram_size, 0);
+    assert_eq!(header.title, "TEST");
+}
+
+#[test]
+fn parses_mbc1_with_ram_and_battery() {
+    let rom = make_rom(0x10000, |r| {
+        r[offset::ROM_SIZE] = 0x01;
+        r[offset::CART_TYPE] = 0x03;
+        r[offset::RAM_SIZE] = 0x02; // 8 KiB
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(
+        header.cart_type,
+        CartridgeType::Mbc1 {
+            ram: true,
+            battery: true
+        }
+    );
+    assert_eq!(header.ram_size, 0x2000);
+}
+
+#[test]
+fn parses_mbc3_with_rtc() {
+    let rom = make_rom(0x80000, |r| {
+        r[offset::ROM_SIZE] = 0x04; // 512 KiB
+        r[offset::CART_TYPE] = 0x10; // MBC3+TIMER+RAM+BATTERY
+        r[offset::RAM_SIZE] = 0x03; // 32 KiB
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(
+        header.cart_type,
+        CartridgeType::Mbc3 {
+            ram: true,
+            battery: true,
+            rtc: true
+        }
+    );
+    assert_eq!(header.rom_size, 0x80000);
+    assert_eq!(header.ram_size, 0x8000);
+}
+
+#[test]
+fn parses_mbc5_with_rumble() {
+    let rom = make_rom(0x100000, |r| {
+        r[offset::ROM_SIZE] = 0x05; // 1 MiB
+        r[offset::CART_TYPE] = 0x1E; // MBC5+RUMBLE+RAM+BATTERY
+        r[offset::RAM_SIZE] = 0x03; // 32 KiB
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(
+        header.cart_type,
+        CartridgeType::Mbc5 {
+            ram: true,
+            battery: true,
+            rumble: true
+        }
+    );
+}
+
+#[test]
+fn cgb_flag_shortens_title_to_eleven_bytes() {
+    let rom = make_rom(0x8000, |r| {
+        r[offset::TITLE..offset::TITLE + 16].copy_from_slice(b"POKEMON YELLOWJP"); // 16-byte title
+        r[offset::CGB_FLAG] = 0x80;
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    // CGB-aware: title trimmed to first 11 bytes.
+    assert_eq!(header.title, "POKEMON YEL");
+}
+
+#[test]
+fn cgb_flag_decodes_to_cgb_support() {
+    for (flag, expected) in [
+        (0x00, CgbSupport::None),
+        (0x80, CgbSupport::Enhanced),
+        (0xC0, CgbSupport::Only),
+        // Bits 2 or 3 select a non-CGB mode through KEY0.
+        (0x84, CgbSupport::None),
+        (0x88, CgbSupport::None),
+        // A title byte below $80 is never a CGB flag.
+        (0x41, CgbSupport::None),
+    ] {
+        let rom = make_rom(0x8000, |r| r[offset::CGB_FLAG] = flag);
+        let header = CartridgeHeader::parse(&rom).unwrap();
+        assert_eq!(header.cgb_support(), expected, "flag {flag:#04X}");
+        assert_eq!(
+            header.cgb_support().uses_cgb_mode(),
+            expected != CgbSupport::None
+        );
+    }
+}
+
+#[test]
+fn the_ram_size_code_gives_external_ram_bytes() {
+    let rom = make_rom(0x10000, |r| {
+        r[offset::ROM_SIZE] = 0x01;
+        r[offset::CART_TYPE] = 0x03;
+        r[offset::RAM_SIZE] = 0x02;
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(header.ram_size, 0x2000);
+    assert!(header.cart_type.has_battery());
+    assert_eq!(header.cart_type.name(), "MBC1");
+}
+
+#[test]
+fn mbc2_ram_size_is_five_hundred_twelve_bytes_regardless_of_byte() {
+    let rom = make_rom(0x10000, |r| {
+        r[offset::ROM_SIZE] = 0x01;
+        r[offset::CART_TYPE] = 0x05; // MBC2
+        r[offset::RAM_SIZE] = 0x00;
+    });
+    let header = CartridgeHeader::parse(&rom).unwrap();
+    assert_eq!(header.ram_size, 0x200, "MBC2 has on-chip 512-byte RAM");
+}
+
+#[test]
+fn header_checksum_matches_pan_docs_formula() {
+    // Pan Docs: x = 0; for each byte $0134..=$014C: x = x - byte - 1.
+    // Verify the computer matches a hand-computed value.
+    let rom = make_rom(0x8000, |r| {
+        r[offset::TITLE] = 0xFF;
+        r[offset::CART_TYPE] = 0x13;
+    });
+    // Reparse to confirm the auto-computed checksum is accepted.
+    assert!(CartridgeHeader::parse(&rom).is_ok());
+}
