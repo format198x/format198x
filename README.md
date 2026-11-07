@@ -12,6 +12,7 @@ not just the 198x projects.
 
 | Crate | Format | crates.io |
 |-------|--------|-----------|
+| [`format198x-acorn-adfs`](crates/format198x-acorn-adfs) | Acorn ADFS old-map floppy images — format, map, blank discs, root directory | Initial release |
 | [`format198x-acorn-atom-atm`](crates/format198x-acorn-atom-atm) | Acorn Atom `.atm` program images — read, write | Initial release |
 | [`format198x-acorn-uef`](crates/format198x-acorn-uef) | Acorn UEF tape images — lossless chunk container, tape chunks, gzipped or not, read, write | Initial release |
 | [`format198x-amstrad-cpc-dsk`](crates/format198x-amstrad-cpc-dsk) | CPCEMU DSK/EDSK reading and standard Spectrum +3DOS disk writing | Initial release |
@@ -49,6 +50,7 @@ not just the 198x projects.
 | [`format198x-nintendo-nes-ines`](crates/format198x-nintendo-nes-ines) | NES iNES and NES 2.0 ROM files — header, trainer, PRG and CHR ROM, read, write | Initial release |
 | [`format198x-nintendo-snes-sfc`](crates/format198x-nintendo-snes-sfc) | Super NES and Super Famicom cartridge images — internal header, checksum, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-bas`](crates/format198x-sinclair-zx-spectrum-bas) | ZX Spectrum BASIC listings — tokenise to stored bytes, list as the 48K ROM does | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-bas.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-bas) |
+| [`format198x-sinclair-zx-spectrum-mdr`](crates/format198x-sinclair-zx-spectrum-mdr) | ZX Spectrum `.mdr` Microdrive cartridges — sectors, checksums, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-rzx`](crates/format198x-sinclair-zx-spectrum-rzx) | ZX Spectrum RZX input recordings — blocks in order, frame streams, zlib payloads, read, write | Initial release |
 | [`format198x-sinclair-zx-spectrum-scr`](crates/format198x-sinclair-zx-spectrum-scr) | ZX Spectrum SCR screen dumps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-sinclair-zx-spectrum-scr.svg)](https://crates.io/crates/format198x-sinclair-zx-spectrum-scr) |
 | [`format198x-sinclair-zx-spectrum-sna`](crates/format198x-sinclair-zx-spectrum-sna) | ZX Spectrum `.sna` snapshots — 48K and 128K, read, write | Initial release |
