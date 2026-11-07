@@ -1,9 +1,11 @@
-//! Commodore 1571 `D71` disk images: directory reading and sector-level read and write.
+//! Commodore 1571 `D71` disk images: read, write and master fresh disks with PRG files.
 //!
 //! A `D71` is a double-sided `D64`: 70 logical tracks (side 0 = tracks 1-35,
 //! side 1 = tracks 36-70) storing decoded 1541 sector data, not live IEC or GCR
 //! drive behaviour. This crate is therefore a container/parser layer only, the
 //! double-sided counterpart to `format198x-commodore-c64-d64`.
+
+#![doc = include_str!("../README.md")]
 
 const D71_STANDARD_SIZE: usize = 349_696;
 const D71_STANDARD_WITH_ERROR_INFO_SIZE: usize = 351_062;
@@ -256,6 +258,260 @@ pub fn write_sector(
     let offset = sector_offset(track, sector_num)?;
     bytes[offset..offset + SECTOR_SIZE].copy_from_slice(data);
     Ok(())
+}
+
+/// One failure while mastering a `D71` image.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum D71WriteError {
+    /// A disk or file name is too long or holds a character that would not
+    /// read back the same (only `A-Z`, `a-z`, `0-9` and space do).
+    InvalidName {
+        /// The rejected name.
+        name: String,
+    },
+    /// The disk id is not exactly two such characters.
+    InvalidId,
+    /// The files need more blocks than the disk has free.
+    DiskFull,
+    /// There are more files than the directory track can list.
+    DirectoryFull,
+}
+
+impl core::fmt::Display for D71WriteError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidName { name } => write!(
+                f,
+                "D71 name {name:?} must be at most 16 of A-Z, a-z, 0-9 and space"
+            ),
+            Self::InvalidId => write!(f, "D71 disk id must be two of A-Z, a-z and 0-9"),
+            Self::DiskFull => write!(f, "files do not fit the 1328 free blocks of a D71"),
+            Self::DirectoryFull => write!(f, "a D71 directory holds at most 144 files"),
+        }
+    }
+}
+
+impl std::error::Error for D71WriteError {}
+
+/// Sectors a 1571 skips between consecutive blocks of a file.
+const FILE_INTERLEAVE: u8 = 6;
+/// Sectors it skips between consecutive directory blocks.
+const DIRECTORY_INTERLEAVE: u8 = 3;
+
+fn encode_name(name: &str, width: usize) -> Result<Vec<u8>, D71WriteError> {
+    let raw = name.as_bytes();
+    if raw.len() > width || !raw.iter().all(|b| b.is_ascii_alphanumeric() || *b == b' ') {
+        return Err(D71WriteError::InvalidName {
+            name: name.to_owned(),
+        });
+    }
+    let mut field = raw.to_vec();
+    field.resize(width, 0xA0);
+    Ok(field)
+}
+
+/// Free-sector map for mastering, one flag per sector.
+struct Allocator {
+    used: Vec<Vec<bool>>,
+}
+
+impl Allocator {
+    fn new() -> Self {
+        Self {
+            used: TRACK_SECTOR_COUNTS
+                .iter()
+                .map(|&n| vec![false; usize::from(n)])
+                .collect(),
+        }
+    }
+
+    fn take(&mut self, track: u8, sector: u8) {
+        self.used[usize::from(track - 1)][usize::from(sector)] = true;
+    }
+
+    /// The next free sector on `track` at or after `from`, wrapping round
+    /// the track. Callers pass `from` as the last sector plus the interleave.
+    fn next_on_track(&self, track: u8, from: u8) -> Option<u8> {
+        let row = &self.used[usize::from(track - 1)];
+        // At most 40 sectors per track, so this always fits a u8.
+        #[allow(clippy::cast_possible_truncation)]
+        let count = row.len() as u8;
+        let mut sector = from % count;
+        for _ in 0..count {
+            if !row[usize::from(sector)] {
+                return Some(sector);
+            }
+            sector = (sector + 1) % count;
+        }
+        None
+    }
+
+    /// Allocate a data block after (`track`, `sector`), keeping off the
+    /// directory/BAM tracks: tracks 17 down to 1, then 19 up to 70, skipping track 53.
+    fn next_data(&mut self, last: Option<(u8, u8)>) -> Option<(u8, u8)> {
+        let order: Vec<u8> = (1..DIRECTORY_TRACK)
+            .rev()
+            .chain(DIRECTORY_TRACK + 1..=70)
+            .filter(|&track| track != 53)
+            .collect();
+        let (start_index, from) = match last {
+            Some((track, sector)) => (
+                order.iter().position(|&t| t == track).unwrap_or(0),
+                sector + FILE_INTERLEAVE,
+            ),
+            None => (0, 0),
+        };
+        for (step, &track) in order.iter().enumerate().skip(start_index) {
+            let from = if step == start_index { from } else { 0 };
+            if let Some(sector) = self.next_on_track(track, from) {
+                self.take(track, sector);
+                return Some((track, sector));
+            }
+        }
+        None
+    }
+}
+
+/// Layout: Commodore 1571 Users Guide, DOS diskette format appendix.
+/// See the retained primary extract in the umbrella reference library.
+///
+/// Master a freshly formatted `D71` holding `files` as closed PRG entries,
+/// in order.
+///
+/// The image is the standard 1366-sector size with a BAM in DOS format `A`.
+/// Each file's [`D71Program::data`] is written whole, load address
+/// included; its `blocks` field is ignored and recomputed. Data blocks are
+/// allocated from track 17 outwards (skipping 18 and 53) with interleave 6, and
+/// directory blocks on track 18 with an interleave of 3.
+///
+/// # Errors
+///
+/// Returns an error when a name or the id cannot be written so that it reads
+/// back the same, the files do not fit, or there are more than 144 of them.
+pub fn master(
+    disk_name: &str,
+    disk_id: &str,
+    files: &[D71Program],
+) -> Result<Vec<u8>, D71WriteError> {
+    let name_field = encode_name(disk_name, 16)?;
+    let id = disk_id.as_bytes();
+    if id.len() != 2 || !id.iter().all(u8::is_ascii_alphanumeric) {
+        return Err(D71WriteError::InvalidId);
+    }
+    if files.len() > 144 {
+        return Err(D71WriteError::DirectoryFull);
+    }
+    let mut image = vec![0u8; D71_STANDARD_SIZE];
+    let mut alloc = Allocator::new();
+    alloc.take(BAM_TRACK, BAM_SECTOR);
+
+    for sector in 0..19 {
+        alloc.take(53, sector);
+    }
+
+    // Directory sectors on track 18, chained with the directory interleave.
+    let dir_count = files.len().div_ceil(8).max(1);
+    let mut dir_sectors = vec![DIRECTORY_START_SECTOR];
+    alloc.take(DIRECTORY_TRACK, DIRECTORY_START_SECTOR);
+    while dir_sectors.len() < dir_count {
+        let last = dir_sectors[dir_sectors.len() - 1];
+        let sector = alloc
+            .next_on_track(DIRECTORY_TRACK, last + DIRECTORY_INTERLEAVE)
+            .ok_or(D71WriteError::DirectoryFull)?;
+        alloc.take(DIRECTORY_TRACK, sector);
+        dir_sectors.push(sector);
+    }
+    let mut dir_blocks = vec![[0u8; SECTOR_SIZE]; dir_count];
+    for (i, block) in dir_blocks.iter_mut().enumerate() {
+        if let Some(&next) = dir_sectors.get(i + 1) {
+            block[0] = DIRECTORY_TRACK;
+            block[1] = next;
+        } else {
+            block[1] = 0xFF;
+        }
+    }
+
+    for (index, file) in files.iter().enumerate() {
+        let entry_name = encode_name(&file.name, 16)?;
+        let chunks: Vec<&[u8]> = if file.data.is_empty() {
+            vec![&[]]
+        } else {
+            file.data.chunks(254).collect()
+        };
+        let mut blocks = Vec::with_capacity(chunks.len());
+        let mut last = None;
+        for _ in &chunks {
+            let at = alloc.next_data(last).ok_or(D71WriteError::DiskFull)?;
+            blocks.push(at);
+            last = Some(at);
+        }
+        for (i, chunk) in chunks.iter().enumerate() {
+            let mut sector = [0u8; SECTOR_SIZE];
+            if let Some(&(track, next)) = blocks.get(i + 1) {
+                sector[0] = track;
+                sector[1] = next;
+            } else {
+                // Chunks hold at most 254 bytes, so this fits a u8.
+                #[allow(clippy::cast_possible_truncation)]
+                let last_byte = chunk.len() as u8 + 1;
+                sector[1] = last_byte;
+            }
+            sector[2..2 + chunk.len()].copy_from_slice(chunk);
+            let (track, sector_num) = blocks[i];
+            let offset = sector_offset(track, sector_num).map_err(|_| D71WriteError::DiskFull)?;
+            image[offset..offset + SECTOR_SIZE].copy_from_slice(&sector);
+        }
+        let slot = &mut dir_blocks[index / 8][(index % 8) * 32..(index % 8) * 32 + 32];
+        slot[2] = 0x82;
+        slot[3] = blocks[0].0;
+        slot[4] = blocks[0].1;
+        slot[5..21].copy_from_slice(&entry_name);
+        // At most 1328 blocks, which fits a u16.
+        #[allow(clippy::cast_possible_truncation)]
+        slot[30..32].copy_from_slice(&(blocks.len() as u16).to_le_bytes());
+    }
+    for (block, &sector) in dir_blocks.iter().zip(&dir_sectors) {
+        let offset =
+            sector_offset(DIRECTORY_TRACK, sector).map_err(|_| D71WriteError::DirectoryFull)?;
+        image[offset..offset + SECTOR_SIZE].copy_from_slice(block);
+    }
+
+    let mut bam = [0u8; SECTOR_SIZE];
+    bam[0] = DIRECTORY_TRACK;
+    bam[1] = DIRECTORY_START_SECTOR;
+    bam[2] = b'A';
+    bam[3] = 0x80;
+    let mut side_two_bam = [0u8; SECTOR_SIZE];
+    for (t, row) in alloc.used.iter().enumerate() {
+        let mut bitmap = [0u8; 3];
+        let mut free = 0u8;
+        for (s, &used) in row.iter().enumerate() {
+            if !used {
+                free += 1;
+                bitmap[s / 8] |= 1 << (s % 8);
+            }
+        }
+        if t < 35 {
+            bam[4 + t * 4] = free;
+            bam[5 + t * 4..8 + t * 4].copy_from_slice(&bitmap);
+        } else {
+            bam[221 + t - 35] = free;
+            side_two_bam[(t - 35) * 3..(t - 35) * 3 + 3].copy_from_slice(&bitmap);
+        }
+    }
+    bam[0x90..0xA0].copy_from_slice(&name_field);
+    bam[0xA0] = 0xA0;
+    bam[0xA1] = 0xA0;
+    bam[0xA2..0xA4].copy_from_slice(id);
+    bam[0xA4] = 0xA0;
+    bam[0xA5] = b'2';
+    bam[0xA6] = b'A';
+    bam[0xA7..0xAB].fill(0xA0);
+    let offset = sector_offset(BAM_TRACK, BAM_SECTOR).map_err(|_| D71WriteError::DiskFull)?;
+    image[offset..offset + SECTOR_SIZE].copy_from_slice(&bam);
+    let offset = sector_offset(53, 0).map_err(|_| D71WriteError::DiskFull)?;
+    image[offset..offset + SECTOR_SIZE].copy_from_slice(&side_two_bam);
+    Ok(image)
 }
 
 impl D71FileType {
@@ -558,6 +814,197 @@ mod tests {
                 track: 1,
                 sector: 0,
             }
+        );
+    }
+
+    fn program(name: &str, len: usize) -> D71Program {
+        D71Program {
+            name: name.to_owned(),
+            data: (0..len).map(|i| i.to_le_bytes()[0]).collect(),
+            blocks: 999,
+        }
+    }
+
+    // Independent traversal: occupied sectors must agree with both bitmap bits
+    // and popcounts. This does not reuse the writer's allocator.
+    fn check_allocation(image: &[u8]) -> Result<usize, String> {
+        let mut used = std::collections::BTreeSet::new();
+        used.insert((18, 0));
+        for s in 0..19 {
+            used.insert((53, s));
+        }
+        let mut at = (DIRECTORY_TRACK, DIRECTORY_START_SECTOR);
+        loop {
+            if !used.insert(at) {
+                return Err("directory overlaps".into());
+            }
+            let block = read_sector(image, at.0, at.1).map_err(|e| e.to_string())?;
+            if block[0] == 0 {
+                break;
+            }
+            at = (block[0], block[1]);
+        }
+        let directory = parse_directory(image).map_err(|e| e.to_string())?;
+        for entry in directory.entries {
+            let mut at = (entry.start_track, entry.start_sector);
+            let mut blocks = 0;
+            loop {
+                if at.0 == 18 || at.0 == 53 {
+                    return Err("file uses a reserved track".into());
+                }
+                if !used.insert(at) {
+                    return Err("file overlaps".into());
+                }
+                blocks += 1;
+                let block = read_sector(image, at.0, at.1).map_err(|e| e.to_string())?;
+                if block[0] == 0 {
+                    break;
+                }
+                at = (block[0], block[1]);
+            }
+            if blocks != entry.blocks {
+                return Err("directory block count".into());
+            }
+        }
+        let mut data_free = 0;
+        for t in 1..=70 {
+            let first = read_sector(image, 18, 0).map_err(|e| e.to_string())?;
+            let second = read_sector(image, 53, 0).map_err(|e| e.to_string())?;
+            let n = usize::from(t - 1);
+            let (declared, bitmap) = if t <= 35 {
+                (first[4 + n * 4], &first[5 + n * 4..8 + n * 4])
+            } else {
+                (first[221 + n - 35], &second[(n - 35) * 3..(n - 35) * 3 + 3])
+            };
+            let count = sectors_in_track(t).map_err(|e| e.to_string())?;
+            let mut free = 0;
+            for s in 0..bitmap.len() * 8 {
+                let bit = bitmap[s / 8] & (1 << (s % 8)) != 0;
+                let expected = s < usize::from(count)
+                    && !used.contains(&(t, u8::try_from(s).expect("sector fits")));
+                if bit != expected {
+                    return Err(format!("bitmap mismatch {t}/{s}"));
+                }
+                if bit {
+                    free += 1;
+                }
+            }
+            if free != usize::from(declared) {
+                return Err(format!("free count mismatch on {t}"));
+            }
+            if t != 18 && t != 53 {
+                data_free += free;
+            }
+        }
+        Ok(data_free)
+    }
+
+    #[test]
+    fn mastering_matches_payloads_chains_and_both_free_maps() {
+        let files: Vec<_> = [0, 1, 253, 254, 255, 200_000]
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| program(&format!("FILE{i}"), n))
+            .collect();
+        let image = master("TEST DISK", "AB", &files).expect("masters");
+        assert_eq!(image.len(), D71_STANDARD_SIZE);
+        let directory = parse_directory(&image).expect("directory");
+        assert_eq!(directory.disk_name, "TEST DISK");
+        assert_eq!(directory.disk_id, "AB");
+        assert_eq!(directory.entries.len(), files.len());
+        for (entry, file) in directory.entries.iter().zip(&files) {
+            assert_eq!(entry.name, file.name);
+            assert_eq!(entry.file_type, D71FileType::Prg);
+            assert!(entry.closed && !entry.locked);
+            assert_eq!(
+                usize::from(entry.blocks),
+                file.data.len().div_ceil(254).max(1)
+            );
+            assert_eq!(
+                read_sector_chain(&image, entry.start_track, entry.start_sector).expect("chain"),
+                file.data
+            );
+        }
+        let consumed: usize = files
+            .iter()
+            .map(|p| p.data.len().div_ceil(254).max(1))
+            .sum();
+        assert_eq!(check_allocation(&image), Ok(1328 - consumed));
+    }
+
+    #[test]
+    fn empty_and_exactly_full_images_have_consistent_allocation() {
+        let empty = master("", "00", &[]).expect("empty disk");
+        assert!(
+            parse_directory(&empty)
+                .expect("directory")
+                .entries
+                .is_empty()
+        );
+        assert_eq!(check_allocation(&empty), Ok(1328));
+        let file = program("FULL", 1328 * 254);
+        let full = master("FULL", "00", std::slice::from_ref(&file)).expect("exact capacity");
+        assert_eq!(check_allocation(&full), Ok(0));
+        assert_eq!(extract_first_prg(&full).expect("extract").data, file.data);
+        assert_eq!(
+            master("OVER", "00", &[program("OVER", 1328 * 254 + 1)]),
+            Err(D71WriteError::DiskFull)
+        );
+    }
+
+    #[test]
+    fn directory_capacity_and_multi_sector_links_are_consistent() {
+        let files: Vec<_> = (0..144).map(|i| program(&format!("F{i}"), 1)).collect();
+        let image = master("DIR", "00", &files).expect("full directory");
+        assert_eq!(
+            parse_directory(&image).expect("directory").entries.len(),
+            144
+        );
+        assert_eq!(check_allocation(&image), Ok(1328 - 144));
+        let mut too_many = files;
+        too_many.push(program("OVER", 1));
+        assert_eq!(
+            master("DIR", "00", &too_many),
+            Err(D71WriteError::DirectoryFull)
+        );
+    }
+
+    #[test]
+    fn rejects_names_and_ids_outside_the_d64_contract() {
+        for name in ["A NAME OVER 16 CHARS", "BAD!", "é"] {
+            assert!(matches!(
+                master(name, "AB", &[]),
+                Err(D71WriteError::InvalidName { .. })
+            ));
+            assert!(matches!(
+                master("OK", "AB", &[program(name, 1)]),
+                Err(D71WriteError::InvalidName { .. })
+            ));
+        }
+        for id in ["", "A", "ABC", "A ", "é"] {
+            assert_eq!(master("OK", id, &[]), Err(D71WriteError::InvalidId));
+        }
+        assert!(master("MiXeD 123", "a1", &[program("ABCDEFGHIJKLMNOP", 1)]).is_ok());
+    }
+
+    #[test]
+    fn allocation_checks_go_red_for_corrupted_counts_and_bits() {
+        let mut image = master("CHECK", "AB", &[program("FILE", 200_000)]).expect("disk");
+        assert!(check_allocation(&image).is_ok());
+        let offset = sector_offset(18, 0).expect("offset") + 221;
+        image[offset] ^= 1;
+        assert!(
+            check_allocation(&image)
+                .expect_err("bad count must fail")
+                .contains("count")
+        );
+        image[offset] ^= 1;
+        let offset = sector_offset(53, 0).expect("offset");
+        image[offset] ^= 1;
+        assert!(
+            check_allocation(&image)
+                .expect_err("bad bit must fail")
+                .contains("bitmap")
         );
     }
 }
