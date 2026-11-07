@@ -22,8 +22,13 @@ publish), a README with a doctested example, and a row in `README.md`.
 |---|---|---|
 | `format-nintendo-nes-ines` | `format198x-nintendo-nes-ines` | Writer: header (iNES and NES 2.0, plain and exponent sizes), trainer, PRG, CHR. |
 | `format-nintendo-famicom-fds` | `format198x-nintendo-famicom-fds` | None; it reads and writes already. |
-| `format-nintendo-snes-sfc` | `format198x-nintendo-snes-sfc` | Writer: add or strip the copier header, and set the checksum pair. |
-| `format-nintendo-game-boy-cartridge` | `format198x-nintendo-game-boy-cartridge` | Drop `serde` and `thiserror`. Writer: header fields, header checksum and global checksum. |
+| `format-nintendo-snes-sfc` | `format198x-nintendo-snes-sfc` | Writer: the file back byte for byte, copier header kept, and set the checksum pair. |
+| `format-nintendo-game-boy-cartridge` | `format198x-nintendo-game-boy-cartridge` | Drop `serde` and `thiserror`. Decode every documented cartridge type. Writer: header checksum and global checksum. |
+
+The SNES and Game Boy headers sit inside the ROM, and their parsed fields
+drop bytes (the SNES title's unprintable bytes, the Game Boy's `$00` and
+`$08` types), so a writer from fields would be lossy. Their writers edit the
+ROM in place and set its checksums instead.
 
 ## PR B: disk and microdrive images
 

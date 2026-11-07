@@ -15,7 +15,10 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
    a file. It does not load a file into a machine or turn it into a signal.
    So the PRG crate has no RAM loader or BASIC relinking, and the ZX80 `.o`
    and ZX81 `.p` crates have no cassette pulse trains. Those stay in Emu198x,
-   over the published crates. The Oric TAP record drew the same line.
+   over the published crates. The Oric TAP record drew the same line. Which
+   boards an emulator supports is machine behaviour too: a crate here
+   decodes every documented type, and the emulator refuses the ones it
+   cannot run.
 2. **Both directions.** A layout Emu198x only read gains its writer here,
    with round-trip tests. Where a writer cannot be lossless, its docs say what
    it drops: the Dragon CAS writer does not keep junk a tolerant read
@@ -74,6 +77,14 @@ amended on 2026-10-25. This record keeps the choices made while moving them.
   did not check.
 - Jupiter Ace and Memotech MTX return typed errors instead of strings, with
   the same messages.
+- NES iNES: the image keeps its 16 header bytes and any bytes after the CHR
+  ROM, so it writes back unchanged.
+- FDS: `write` refuses a side longer than 65,500 bytes, and more than 255
+  sides with a header. Emu198x cut the side and clamped the count.
+- SNES: the image keeps the copier header's bytes (`copier_header`) in
+  place of a `had_copier_header` flag.
+- Game Boy: every documented cartridge type decodes. Emu198x refused
+  MMM01, MBC6, MBC7, Pocket Camera, TAMA5, HuC3 and HuC1 as unsupported.
 
 ## Drift triggers
 
