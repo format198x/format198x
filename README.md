@@ -30,7 +30,7 @@ not just the 198x projects.
 | [`format198x-commodore-c64-bas`](crates/format198x-commodore-c64-bas) | C64 BASIC V2 listings — tokenise to a PRG, list as the C64 does | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-bas.svg)](https://crates.io/crates/format198x-commodore-c64-bas) |
 | [`format198x-commodore-c64-crt`](crates/format198x-commodore-c64-crt) | C64 CRT cartridge images — header, `EXROM`/`GAME`, CHIP packets, read, write | Initial release |
 | [`format198x-commodore-c64-d64`](crates/format198x-commodore-c64-d64) | Commodore 1541 D64 disk images — directory, sectors, mastering with PRG files | Initial release |
-| [`format198x-commodore-c64-d81`](crates/format198x-commodore-c64-d81) | Commodore 1581 D81 disk images — directory, sector read and write | Initial release |
+| [`format198x-commodore-c64-d81`](crates/format198x-commodore-c64-d81) | Commodore 1581 D81 disk images — directory, sectors, mastering with PRG files | Initial release |
 | [`format198x-commodore-c64-g64`](crates/format198x-commodore-c64-g64) | Commodore 1541 G64 raw-GCR disk images — read, write | Initial release |
 | [`format198x-commodore-c64-koala`](crates/format198x-commodore-c64-koala) | C64 Koala Painter multicolour bitmaps — read, write | [![crates.io](https://img.shields.io/crates/v/format198x-commodore-c64-koala.svg)](https://crates.io/crates/format198x-commodore-c64-koala) |
 | [`format198x-commodore-c64-p00`](crates/format198x-commodore-c64-p00) | Commodore PC64 P00 containers — read, write | Initial release |
