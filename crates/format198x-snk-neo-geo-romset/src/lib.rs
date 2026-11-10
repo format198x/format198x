@@ -9,7 +9,8 @@
 //! a machine reads.
 //!
 //! A file's role and order come from its extension, or failing that the end
-//! of its stem: `201-p1.p1` and `201-p1.bin` are both P-ROM 1. The layout
+//! of its stem: `201-p1.p1` and `201-p1.bin` are both P-ROM 1, and so is
+//! `238-pg1.p1`; `045-pg2.sp2` is P-ROM 2. The layout
 //! follows MAME's `neogeo.cpp` (BSD-3-Clause):
 //!
 //! - P-ROMs are stored with each 16-bit word byte-swapped; they are swapped
@@ -93,7 +94,12 @@ fn classify(name: &str) -> Option<(char, u8)> {
     let (stem, extension) = base.rsplit_once('.').unwrap_or((&base, ""));
     tag(extension).or_else(|| {
         let tail = stem.rsplit(['-', '_']).next()?;
-        tag(tail)
+        // MAME names some program ROMs `pgN` ("program, game"): samsho's
+        // second is `045-pg2.sp2`. A `.spN` extension is not enough, since
+        // the system BIOS is `sp-s2.sp1`.
+        tail.strip_prefix("pg")
+            .and_then(|digits| tag(&format!("p{digits}")))
+            .or_else(|| tag(tail))
     })
 }
 
