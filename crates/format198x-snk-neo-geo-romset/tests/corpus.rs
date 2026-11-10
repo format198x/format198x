@@ -25,7 +25,18 @@ fn real_sets_keep_all_decoded_regions() {
                 )
             })
             .collect::<Vec<_>>();
+        // A MAME parent set holds only the game's ROMs, so every byte must
+        // land in a region: a file the classifier skips is a lost chip.
+        let file_bytes: usize = files.iter().map(|(_, bytes)| bytes.len()).sum();
         let set = from_files(files).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        let region_bytes =
+            set.p.len() + set.s.len() + set.m.len() + set.v_a.len() + set.v_b.len() + set.c.len();
+        assert_eq!(
+            region_bytes,
+            file_bytes,
+            "{}: some files were not read into a region",
+            dir.display()
+        );
         let decoded =
             from_files(to_files(&set).expect("write regions")).expect("read written files");
         assert!(decoded == set, "{} regions changed", dir.display());

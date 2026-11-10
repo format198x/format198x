@@ -23,6 +23,28 @@ fn names_classify_by_extension_or_stem() {
 }
 
 #[test]
+fn a_pg_stem_names_a_program_rom_whatever_its_extension() {
+    // MAME's samsho keeps its second program ROM as `045-pg2.sp2`, and
+    // shocktro its first as `238-pg1.p1`.
+    assert_eq!(classify("045-pg2.sp2"), Some(('p', 2)));
+    assert_eq!(classify("238-pg1.p1"), Some(('p', 1)));
+    // The BIOS's `.sp1` extension does not make it a program ROM.
+    for bios in ["sp-s2.sp1", "sp-s.sp1", "sp-e.sp1", "sm1.sm1"] {
+        assert_ne!(classify(bios).map(|(role, _)| role), Some('p'), "{bios}");
+    }
+}
+
+#[test]
+fn samsho_keeps_its_second_program_rom() {
+    let set = from_files([
+        file("045-p1.p1", &[0x11, 0x22]),
+        file("045-pg2.sp2", &[0x33, 0x44]),
+    ])
+    .unwrap();
+    assert_eq!(set.p, [0x22, 0x11, 0x44, 0x33]);
+}
+
+#[test]
 fn program_roms_are_word_swapped_and_joined_in_order() {
     let set = from_files([file("x-p2.p2", &[5, 6]), file("x-p1.p1", &[1, 2, 3, 4])]).unwrap();
     assert_eq!(set.p, [2, 1, 4, 3, 6, 5]);
