@@ -4,7 +4,10 @@
 
 ### Fixed
 
-- *(snk-neo-geo-romset)* read program ROMs MAME names pgN
+- Program ROMs that MAME names `pgN` are read as P-ROM N. Samurai Shodown's
+  second program ROM, `045-pg2.sp2`, was skipped, leaving its program region
+  1 MiB short. A `.spN` extension alone does not count, because the system
+  BIOS is `sp-s2.sp1`.
 
 ## [0.1.0] - 2026-11-07
 
