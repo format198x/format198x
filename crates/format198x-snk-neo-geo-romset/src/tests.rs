@@ -35,6 +35,21 @@ fn a_pg_stem_names_a_program_rom_whatever_its_extension() {
 }
 
 #[test]
+fn archive_members_can_be_filtered_by_the_decoders_filename_rules() {
+    for rom in [
+        "201-p1.p1",
+        "045-pg2.sp2",
+        "game/201-C12.C12",
+        r"game\x_m1.rom",
+    ] {
+        assert!(is_rom_filename(rom), "{rom}");
+    }
+    for unrelated in ["docs/readme.txt", "000-lo.lo", "p0.p0", "c123.c123"] {
+        assert!(!is_rom_filename(unrelated), "{unrelated}");
+    }
+}
+
+#[test]
 fn samsho_keeps_its_second_program_rom() {
     let set = from_files([
         file("045-p1.p1", &[0x11, 0x22]),
