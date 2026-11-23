@@ -26,8 +26,9 @@
 //! [`to_files`] writes canonical named files from the regions. Original chip
 //! names and split boundaries are not retained. ZIP handling belongs to callers.
 //!
-//! Files that fit no role, a BIOS or a readme in the same archive, are left
-//! out. Other bank wiring and encrypted sets are not inferred here.
+//! Files whose names fit no role are left out. Names alone do not distinguish
+//! all BIOS dumps from cartridge ROMs. Other bank wiring and encrypted sets
+//! are not inferred here.
 
 use std::fmt;
 
@@ -116,6 +117,17 @@ fn tag(text: &str) -> Option<(char, u8)> {
     }
     let index: u8 = digits.parse().ok()?;
     (index > 0).then_some((role, index))
+}
+
+/// Whether a file name is recognised as a candidate ROM by [`from_files`].
+///
+/// Archive readers can use this check before opening or decompressing a
+/// member. Path prefixes are ignored. This checks the name alone; it does
+/// not validate bytes, distinguish every BIOS name, or guarantee that the
+/// decoded set will retain the file.
+#[must_use]
+pub fn is_rom_filename(name: &str) -> bool {
+    classify(name).is_some()
 }
 
 /// Build a ROM set from `(file name, contents)` pairs.

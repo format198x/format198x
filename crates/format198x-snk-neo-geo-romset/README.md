@@ -1,9 +1,12 @@
 # Neo Geo cartridge ROM files
 
-Read MAME-named ROM files into P, S, M, ADPCM-A, ADPCM-B and interleaved C regions, and write those regions back to named files. No outside dependencies; callers handle ZIP archives.
+Read MAME-named ROM files into P, S, M, ADPCM-A, ADPCM-B and interleaved C regions, and write those regions back to named files. No outside dependencies; callers handle ZIP archives. Use `is_rom_filename` to skip unrecognised names before decompressing an entry.
 
 ```rust
-use format198x_snk_neo_geo_romset::{from_files, to_files};
+use format198x_snk_neo_geo_romset::{from_files, is_rom_filename, to_files};
+
+assert!(is_rom_filename("samsho/045-pg2.sp2"));
+assert!(!is_rom_filename("samsho/readme.txt"));
 
 let set = from_files([
     ("201-p1.p1".to_owned(), vec![0x34, 0x12]),
