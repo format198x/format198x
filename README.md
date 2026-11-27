@@ -83,6 +83,24 @@ standalone consumer. Emu198x's format layouts all move here regardless; see
 - **Deterministic** — the same inputs always produce identical bytes.
 - **Panic-free reads** — malformed input yields a typed error, never a panic.
 
+## ILBM reference validation
+
+With Netpbm and Python 3.11 or later installed, run:
+
+```sh
+python3 scripts/check-ilbm-reference.py --strict
+```
+
+The runner compares decoded pixels in both directions using a generated,
+public fixture. It records each result, tool version and binary SHA-256,
+input hashes, and Git revision. Use `--check decode` or `--check encode` to
+select one direction. The other direction is recorded as `not_run`.
+
+Without `--strict`, a missing tool is a reported skip. For a release claim,
+use a clean checkout and retain the strict evidence record with a passing
+result for each direction claimed. This runner covers its generated ILBM
+fixture. Private corpora and other formats need their own evidence.
+
 ## Licence
 
 GPL-2.0-or-later, throughout — consistent with the 198x emulator/tooling family
