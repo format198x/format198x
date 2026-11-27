@@ -1,4 +1,4 @@
-//! Atari 8-bit segmented executable (`.xex`) parser.
+//! Atari 8-bit segmented executable (`.xex`) codec.
 //!
 //! A file is an optional/repeatable `$FFFF` marker followed by ordered
 //! segments. Each segment stores an inclusive little-endian start/end address
@@ -78,6 +78,87 @@ impl fmt::Display for ParseError {
 
 impl core::error::Error for ParseError {}
 
+/// Why ordered load segments could not be written as XEX.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EncodeError {
+    /// No load segment was supplied.
+    NoSegments,
+    /// A segment starts with the reserved $FFFF file marker.
+    MarkerAddress { index: usize },
+    /// An inclusive range ended before it started.
+    ReversedRange { index: usize, start: u16, end: u16 },
+    /// The payload length differs from the inclusive address range.
+    LengthMismatch {
+        index: usize,
+        expected: usize,
+        actual: usize,
+    },
+}
+
+impl fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoSegments => f.write_str("XEX requires at least one load segment"),
+            Self::MarkerAddress { index } => {
+                write!(f, "XEX segment {index} starts at the reserved $FFFF marker")
+            }
+            Self::ReversedRange { index, start, end } => write!(
+                f,
+                "XEX segment {index} ends at ${end:04X} before ${start:04X}"
+            ),
+            Self::LengthMismatch {
+                index,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "XEX segment {index} needs {expected} payload bytes; got {actual}"
+            ),
+        }
+    }
+}
+
+impl core::error::Error for EncodeError {}
+
+/// Write one leading `$FFFF` marker followed by the supplied load segments.
+///
+/// Order and overlaps are preserved, including explicit writes to `RUNAD` and
+/// `INITAD`. A range may end at `$FFFF`. A start at `$FFFF` is reserved for
+/// the marker.
+///
+/// # Errors
+/// Returns [`EncodeError`] for an empty segment list, a reserved start address,
+/// a reversed range, or a payload whose length does not match its range.
+pub fn encode(segments: &[Segment<'_>]) -> Result<Vec<u8>, EncodeError> {
+    if segments.is_empty() {
+        return Err(EncodeError::NoSegments);
+    }
+
+    let mut bytes = vec![0xff, 0xff];
+    for (index, segment) in segments.iter().enumerate() {
+        let Segment { start, end, data } = *segment;
+        if start == u16::MAX {
+            return Err(EncodeError::MarkerAddress { index });
+        }
+        let span =
+            end.checked_sub(start)
+                .ok_or(EncodeError::ReversedRange { index, start, end })?;
+        let expected = usize::from(span) + 1;
+        if data.len() != expected {
+            return Err(EncodeError::LengthMismatch {
+                index,
+                expected,
+                actual: data.len(),
+            });
+        }
+        bytes.extend_from_slice(&start.to_le_bytes());
+        bytes.extend_from_slice(&end.to_le_bytes());
+        bytes.extend_from_slice(data);
+    }
+    Ok(bytes)
+}
+
 /// Parse a segmented Atari executable.
 ///
 /// # Errors
@@ -130,6 +211,93 @@ pub fn parse(mut bytes: &[u8]) -> Result<Xex<'_>, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encodes_the_same_order_and_vectors_as_the_ld65_atari_writer() {
+        // ld65 2fa92f9, FILES { %O: format = atari; }, with INITAD for the
+        // $2000 area (RTS) and RUNAD at $3000 (LDA #$2A; STA $0600; RTS).
+        let native = [
+            0xff, 0xff, 0x00, 0x20, 0x00, 0x20, 0x60, 0xe2, 0x02, 0xe3, 0x02, 0x00, 0x20, 0x00,
+            0x30, 0x05, 0x30, 0xa9, 0x2a, 0x8d, 0x00, 0x06, 0x60, 0xe0, 0x02, 0xe1, 0x02, 0x00,
+            0x30,
+        ];
+        let segments = [
+            Segment {
+                start: 0x2000,
+                end: 0x2000,
+                data: &[0x60],
+            },
+            Segment {
+                start: 0x02e2,
+                end: 0x02e3,
+                data: &[0x00, 0x20],
+            },
+            Segment {
+                start: 0x3000,
+                end: 0x3005,
+                data: &[0xa9, 0x2a, 0x8d, 0x00, 0x06, 0x60],
+            },
+            Segment {
+                start: 0x02e0,
+                end: 0x02e1,
+                data: &[0x00, 0x30],
+            },
+        ];
+        assert_eq!(encode(&segments).expect("encode segments"), native);
+    }
+
+    #[test]
+    fn encodes_overlaps_in_order_and_allows_the_top_address_as_an_end() {
+        let segments = [
+            Segment {
+                start: 0xfffd,
+                end: 0xffff,
+                data: &[1, 2, 3],
+            },
+            Segment {
+                start: 0xfffe,
+                end: 0xffff,
+                data: &[4, 5],
+            },
+        ];
+        let bytes = encode(&segments).expect("encode overlapping segments");
+        assert_eq!(parse(&bytes).expect("parse segments").segments, segments);
+    }
+
+    #[test]
+    fn rejects_unencodable_ranges_and_payloads() {
+        assert_eq!(encode(&[]), Err(EncodeError::NoSegments));
+        let segment = Segment {
+            start: 0xfffe,
+            end: 0xffff,
+            data: &[1, 2],
+        };
+        for data in [&[][..], &[1, 2, 3][..]] {
+            assert_eq!(
+                encode(&[Segment { data, ..segment }]),
+                Err(EncodeError::LengthMismatch {
+                    index: 0,
+                    expected: 2,
+                    actual: data.len()
+                })
+            );
+        }
+        assert_eq!(
+            encode(&[Segment { end: 0, ..segment }]),
+            Err(EncodeError::ReversedRange {
+                index: 0,
+                start: 0xfffe,
+                end: 0
+            })
+        );
+        assert_eq!(
+            encode(&[Segment {
+                start: 0xffff,
+                ..segment
+            }]),
+            Err(EncodeError::MarkerAddress { index: 0 })
+        );
+    }
 
     #[test]
     fn parses_ordered_segments_and_repeated_markers() {
