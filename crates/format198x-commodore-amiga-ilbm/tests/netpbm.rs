@@ -1,5 +1,4 @@
-//! Netpbm cross-checks for the ILBM codec, in both directions, per
-//! `decisions/validation-tiers.md`:
+//! Netpbm cross-checks for the ILBM codec, in both directions:
 //!
 //! 1. `ppmtoilbm` output decoded by **our decoder** (their encoder, our
 //!    decoder).
@@ -11,29 +10,41 @@
 //!
 //! The netpbm tools are validation-time dependencies only: these tests are
 //! `#[ignore]`d and skip gracefully (eprintln + return) when the tools are
-//! not on PATH. Run with
-//! `cargo test -p format198x-commodore-amiga-ilbm -- --ignored`.
+//! not on PATH. Run them directly with
+//! `cargo test -p format198x-commodore-amiga-ilbm -- --ignored`, or use
+//! `scripts/check-ilbm-reference.py` for an evidence record.
 
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output};
 
 use format198x_commodore_amiga_ilbm::{self as ilbm, Compression, Ilbm};
 
-/// True when `tool` resolves on PATH (checked with `which`).
-fn tool_available(tool: &str) -> bool {
-    Command::new("which")
-        .arg(tool)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// A scratch file path that is unique per test.
-fn scratch(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "format198x-commodore-amiga-ilbm-netpbm-{}-{name}",
-        std::process::id()
-    ))
+/// Run the reference tool, keeping its exact input when the evidence runner
+/// supplies a directory. An explicitly required tool must actually start.
+fn run_reference(tool: &str, name: &str, bytes: &[u8]) -> Option<Output> {
+    let evidence = std::env::var_os("FORMAT198X_REFERENCE_EVIDENCE_DIR").map(PathBuf::from);
+    let input = evidence.as_ref().map_or_else(
+        || {
+            std::env::temp_dir().join(format!(
+                "format198x-commodore-amiga-ilbm-netpbm-{}-{name}",
+                std::process::id()
+            ))
+        },
+        |directory| directory.join(name),
+    );
+    std::fs::write(&input, bytes).expect("write reference tool input");
+    let result = Command::new(tool).arg(&input).output();
+    if evidence.is_none() {
+        let _ = std::fs::remove_file(&input);
+    }
+    match result {
+        Ok(output) => Some(output),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound && evidence.is_none() => {
+            eprintln!("{tool} not on PATH; skipping the netpbm cross-check");
+            None
+        }
+        Err(err) => panic!("cannot run required reference tool {tool}: {err}"),
+    }
 }
 
 /// Minimal binary PPM (P6, maxval 255) parser: returns (width, height,
@@ -120,20 +131,11 @@ fn test_image() -> Ilbm {
 #[test]
 #[ignore = "needs netpbm on PATH; validation-time dependency only"]
 fn ppmtoilbm_output_decodes_with_our_decoder() {
-    if !tool_available("ppmtoilbm") {
-        eprintln!("ppmtoilbm not on PATH; skipping the netpbm cross-check");
-        return;
-    }
-
     let reference = test_image();
     let rgb = ilbm_to_rgb(&reference);
-    let ppm_path = scratch("in.ppm");
-    std::fs::write(&ppm_path, write_ppm(16, 4, &rgb)).expect("write scratch PPM");
-
-    let output = Command::new("ppmtoilbm")
-        .arg(&ppm_path)
-        .output()
-        .expect("run ppmtoilbm");
+    let Some(output) = run_reference("ppmtoilbm", "in.ppm", &write_ppm(16, 4, &rgb)) else {
+        return;
+    };
     assert!(
         output.status.success(),
         "ppmtoilbm failed: {}",
@@ -148,8 +150,6 @@ fn ppmtoilbm_output_decodes_with_our_decoder() {
         rgb,
         "pixel RGB must survive ppmtoilbm -> our decoder"
     );
-
-    let _ = std::fs::remove_file(&ppm_path);
 }
 
 /// Direction 2: our encoder, their decoder — the direction that guards the
@@ -157,11 +157,6 @@ fn ppmtoilbm_output_decodes_with_our_decoder() {
 #[test]
 #[ignore = "needs netpbm on PATH; validation-time dependency only"]
 fn ilbmtoppm_reads_our_encoder_output() {
-    if !tool_available("ilbmtoppm") {
-        eprintln!("ilbmtoppm not on PATH; skipping the netpbm cross-check");
-        return;
-    }
-
     let image = test_image();
     let expected_rgb = ilbm_to_rgb(&image);
 
@@ -169,14 +164,10 @@ fn ilbmtoppm_reads_our_encoder_output() {
         ("uncompressed", Compression::None),
         ("byterun1", Compression::ByteRun1),
     ] {
-        let iff_path = scratch(&format!("out-{label}.iff"));
         let bytes = ilbm::encode(&image, compression).expect("encode");
-        std::fs::write(&iff_path, &bytes).expect("write scratch IFF");
-
-        let output = Command::new("ilbmtoppm")
-            .arg(&iff_path)
-            .output()
-            .expect("run ilbmtoppm");
+        let Some(output) = run_reference("ilbmtoppm", &format!("out-{label}.iff"), &bytes) else {
+            return;
+        };
         assert!(
             output.status.success(),
             "ilbmtoppm failed on {label}: {}",
@@ -189,7 +180,5 @@ fn ilbmtoppm_reads_our_encoder_output() {
             pixels, expected_rgb,
             "{label}: pixel RGB must survive our encoder -> ilbmtoppm"
         );
-
-        let _ = std::fs::remove_file(&iff_path);
     }
 }
